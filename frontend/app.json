@@ -1,0 +1,21 @@
+{
+  "expo": {
+    "name": "University Monitoring System",
+    "slug": "university-monitoring-system",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "assetBundlePatterns": ["**/*"],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.university.monitoring"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#6200ee"
+      },
+      "package": "com.university.monitoring"
+    },
+    "description": "University Monitoring System"
+  }
+}

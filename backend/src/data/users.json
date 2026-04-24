@@ -1,0 +1,58 @@
+[
+  {
+    "id": 1,
+    "name": "Leseo Mphutlane",
+    "email": "leseomphutlane@gmail.com",
+    "password": "kalimokalimo",
+    "role": "student",
+    "createdAt": "2026-04-20T14:16:53.493Z",
+    "lastLogin": "2026-04-23T13:05:52.032Z"
+  },
+  {
+    "id": 2,
+    "name": "Tsekiso Thokoana",
+    "email": "tsekisothokoana@gmail.com",
+    "password": "tsekiso1",
+    "role": "lecturer",
+    "createdAt": "2026-04-20T14:18:47.700Z",
+    "lastLogin": "2026-04-23T13:46:49.653Z"
+  },
+  {
+    "id": 3,
+    "name": "Teboho Letho",
+    "email": "letho@gmail.com",
+    "password": "letho1",
+    "role": "prl",
+    "createdAt": "2026-04-20T14:20:49.451Z",
+    "lastLogin": "2026-04-23T09:51:20.572Z"
+  },
+  {
+    "id": 4,
+    "name": "Sello Molise",
+    "email": "sello@gmail.com",
+    "password": "sello1",
+    "role": "pl",
+    "createdAt": "2026-04-20T14:22:58.151Z",
+    "lastLogin": "2026-04-23T09:52:39.147Z"
+  },
+  {
+    "id": 5,
+    "uid": "user_1776938400354",
+    "name": "Thato Makheka",
+    "email": "thato@gmail.com",
+    "password": "thato1",
+    "role": "pl",
+    "createdAt": "2026-04-23T10:00:00.354Z",
+    "lastLogin": "2026-04-23T10:06:27.345Z"
+  },
+  {
+    "id": 6,
+    "uid": "user_1776938597310",
+    "name": "Thabo Thabang",
+    "email": "thabo@gmail.com",
+    "password": "thabo1",
+    "role": "lecturer",
+    "createdAt": "2026-04-23T10:03:17.310Z",
+    "lastLogin": "2026-04-23T10:05:36.451Z"
+  }
+]
