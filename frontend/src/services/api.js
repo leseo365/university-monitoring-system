@@ -2,28 +2,17 @@ import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 
-// Dynamically set API URL based on platform
-const getApiUrl = () => {
-  if (Platform.OS === 'android') {
-    return 'http://10.0.2.2:3000/api';  // Android emulator
-  } else if (Platform.OS === 'ios') {
-    return 'http://localhost:3000/api';  // iOS simulator
-  } else {
-    return 'http://localhost:3000/api';  // Web
-  }
-};
-
-const API_URL = getApiUrl();
+// YOUR LIVE BACKEND URL - MAKE SURE THIS IS CORRECT
+const API_URL = 'https://university-monitoring-system.onrender.com/api';
 
 console.log('========================================');
 console.log('API Configuration:');
-console.log(`Platform: ${Platform.OS}`);
 console.log(`API URL: ${API_URL}`);
 console.log('========================================');
 
 const api = axios.create({
   baseURL: API_URL,
-  timeout: 30000,
+  timeout: 60000, // Increased timeout
   headers: {
     'Content-Type': 'application/json',
     'Accept': 'application/json',
@@ -53,16 +42,16 @@ api.interceptors.response.use(
     return response;
   },
   async (error) => {
-    console.error('API Error:', error.response?.status, error.response?.data);
+    console.error('API Error:', error.code, error.message);
     
     if (error.code === 'ECONNABORTED') {
       console.error('Connection timeout - server not responding');
-      return Promise.reject({ error: 'Connection timeout. Please check if backend server is running.' });
+      return Promise.reject({ error: 'Connection timeout. Please check your internet connection.' });
     }
     
     if (error.code === 'ERR_NETWORK') {
       console.error('Network error - cannot reach server');
-      return Promise.reject({ error: `Network error. Cannot connect to server at ${API_URL}. Make sure backend is running on port 3000.` });
+      return Promise.reject({ error: `Network error. Cannot connect to server at ${API_URL}. Please check if backend is running.` });
     }
     
     if (error.response?.status === 401) {
@@ -94,7 +83,6 @@ export const authService = {
     try {
       const response = await api.post('/auth/login', { email, password });
       if (response.data.success) {
-        // Store user data
         await AsyncStorage.setItem('userToken', response.data.token || 'temp-token');
         await AsyncStorage.setItem('userRole', response.data.user.role);
         await AsyncStorage.setItem('userData', JSON.stringify(response.data.user));
@@ -361,11 +349,13 @@ export const attendanceService = {
 export const statusService = {
   checkServer: async () => {
     try {
+      console.log('Checking server at:', API_URL);
       const response = await api.get('/status');
+      console.log('Server status:', response.data);
       return response.data;
     } catch (error) {
       console.error('Server check failed:', error);
-      return { firebaseConnected: false, error: error.message };
+      return { firebaseConnected: false, error: error.message, apiUrl: API_URL };
     }
   },
   
