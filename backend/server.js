@@ -10,7 +10,12 @@ require('dotenv').config();
 const app = express();
 
 // Middleware
-app.use(cors());
+app.use(cors({
+  origin: '*',
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
+}));
 app.use(express.json());
 
 // firebase configuration 
@@ -45,7 +50,6 @@ console.log('========================================\n');
 
 // Function to initialize Firebase
 async function initializeFirebase() {
-  // Try environment variables first (for production)
   if (process.env.FIREBASE_PROJECT_ID && process.env.FIREBASE_CLIENT_EMAIL && process.env.FIREBASE_PRIVATE_KEY) {
     try {
       console.log('Initializing Firebase with environment variables...');
@@ -80,7 +84,6 @@ async function initializeFirebase() {
     }
   }
   
-  // Try local service account file (for development)
   const serviceAccountPath = path.join(__dirname, 'serviceAccountKey.json');
   
   if (!adminSdkWorked && fs.existsSync(serviceAccountPath)) {
@@ -152,7 +155,6 @@ async function initializeFirebase() {
   }
 }
 
-// Helper functions
 async function saveToFirestore(collection, docId, data) {
   if (useRestApi) {
     try {
@@ -183,16 +185,58 @@ async function saveToFirestore(collection, docId, data) {
 async function getFromFirestore(collection, queryField = null, queryValue = null) {
   if (useRestApi) {
     try {
-      const response = await axios.get(
-        `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents/${collection}?key=${FIREBASE_WEB_API_KEY}`,
-        { timeout: 10000 }
-      );
+      if (queryField && queryValue) {
+        const queryUrl = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents:runQuery?key=${FIREBASE_WEB_API_KEY}`;
+        
+        const queryBody = {
+          structuredQuery: {
+            from: [{ collectionId: collection }],
+            where: {
+              fieldFilter: {
+                field: { fieldPath: queryField },
+                op: 'EQUAL',
+                value: { stringValue: queryValue }
+              }
+            }
+          }
+        };
+        
+        console.log(`Querying ${collection} for ${queryField}=${queryValue}`);
+        const response = await axios.post(queryUrl, queryBody, { timeout: 10000 });
+        
+        const documents = [];
+        if (response.data && Array.isArray(response.data)) {
+          for (const result of response.data) {
+            if (result.document) {
+              const doc = result.document;
+              const id = doc.name.split('/').pop();
+              const fields = {};
+              Object.entries(doc.fields || {}).forEach(([k, v]) => {
+                const valueKey = Object.keys(v)[0];
+                fields[k] = v[valueKey];
+              });
+              documents.push({ id, ...fields });
+            }
+          }
+        }
+        
+        console.log(`Found ${documents.length} documents`);
+        return documents;
+      }
+      
+      const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents/${collection}?key=${FIREBASE_WEB_API_KEY}`;
+      const response = await axios.get(url, { timeout: 10000 });
       
       const documents = response.data.documents || [];
-      return documents.map(doc => ({
-        id: doc.name.split('/').pop(),
-        ...Object.fromEntries(Object.entries(doc.fields || {}).map(([k, v]) => [k, Object.values(v)[0]]))
-      }));
+      return documents.map(doc => {
+        const id = doc.name.split('/').pop();
+        const fields = {};
+        Object.entries(doc.fields || {}).forEach(([k, v]) => {
+          const valueKey = Object.keys(v)[0];
+          fields[k] = v[valueKey];
+        });
+        return { id, ...fields };
+      });
     } catch (error) {
       console.error('REST API get error:', error.message);
       return [];
@@ -234,6 +278,9 @@ app.post('/api/auth/register', async (req, res) => {
       return res.status(400).json({ error: 'All fields required' });
     }
     
+    const validRoles = ['student', 'lecturer', 'prl', 'pl'];
+    const userRole = validRoles.includes(role) ? role : 'student';
+    
     const existingUsers = await getFromFirestore('users', 'email', email);
     if (existingUsers.length > 0) {
       return res.status(400).json({ error: 'User already exists' });
@@ -273,18 +320,18 @@ app.post('/api/auth/register', async (req, res) => {
       uid: firebaseUid,
       name,
       email,
-      role: role || 'student',
+      role: userRole,
       passwordHash: hashedPassword,
       createdAt: new Date().toISOString()
     };
     
     await saveToFirestore('users', firebaseUid, userData);
-    console.log('User stored in Firestore');
+    console.log('User stored in Firestore with role:', userRole);
     
     res.json({
       success: true,
       message: 'Registration successful',
-      user: { uid: firebaseUid, name, email, role: role || 'student' }
+      user: { uid: firebaseUid, name, email, role: userRole }
     });
     
   } catch (error) {
@@ -306,17 +353,31 @@ app.post('/api/auth/login', async (req, res) => {
     }
     
     const userData = users[0];
+    
+    console.log('User found:', userData.email);
+    console.log('User role in database:', userData.role);
+    
     const isValid = await bcrypt.compare(password, userData.passwordHash);
     
     if (!isValid) {
+      console.log('Invalid password for:', email);
       return res.status(401).json({ error: 'Invalid password' });
     }
     
-    console.log('Login successful');
+    console.log('Login successful for:', email);
+    console.log('Returning role:', userData.role);
+    
+    const validRoles = ['student', 'lecturer', 'prl', 'pl'];
+    const userRole = validRoles.includes(userData.role) ? userData.role : 'student';
     
     res.json({
       success: true,
-      user: { uid: userData.uid, name: userData.name, email: userData.email, role: userData.role }
+      user: { 
+        uid: userData.uid, 
+        name: userData.name, 
+        email: userData.email, 
+        role: userRole
+      }
     });
     
   } catch (error) {
@@ -325,13 +386,108 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
-// ============ GET ALL USERS (For debugging) ============
+// Debug endpoint to find user by email
+app.get('/api/auth/find-user/:email', async (req, res) => {
+  try {
+    const email = req.params.email;
+    console.log('Looking for user with email:', email);
+    
+    const users = await getFromFirestore('users', 'email', email);
+    
+    console.log(`Query returned ${users.length} users`);
+    
+    const safeUsers = users.map(user => ({
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      uid: user.uid
+    }));
+    
+    res.json({ 
+      success: true, 
+      count: users.length,
+      users: safeUsers
+    });
+  } catch (error) {
+    console.error('Error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Update user endpoint
+app.post('/api/auth/update-user', async (req, res) => {
+  try {
+    const { uid, email, newRole, newName } = req.body;
+    
+    let userToUpdate = null;
+    let userId = uid;
+    
+    if (email) {
+      const users = await getFromFirestore('users', 'email', email);
+      if (users.length === 0) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+      userToUpdate = users[0];
+      userId = userToUpdate.uid;
+    } else if (uid) {
+      const users = await getFromFirestore('users');
+      userToUpdate = users.find(u => u.uid === uid);
+      if (!userToUpdate) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+    } else {
+      return res.status(400).json({ error: 'Either uid or email required' });
+    }
+    
+    const updatedData = { ...userToUpdate };
+    if (newRole) updatedData.role = newRole;
+    if (newName) updatedData.name = newName;
+    updatedData.updatedAt = new Date().toISOString();
+    
+    await saveToFirestore('users', userId, updatedData);
+    
+    console.log(`Updated user: ${userToUpdate.email}`);
+    res.json({ success: true, message: 'User updated successfully', user: updatedData });
+  } catch (error) {
+    console.error('Error updating user:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/auth/update-role', async (req, res) => {
+  try {
+    const { email, newRole } = req.body;
+    
+    if (!email || !newRole) {
+      return res.status(400).json({ error: 'Email and new role required' });
+    }
+    
+    const validRoles = ['student', 'lecturer', 'prl', 'pl'];
+    if (!validRoles.includes(newRole)) {
+      return res.status(400).json({ error: 'Invalid role. Must be: student, lecturer, prl, pl' });
+    }
+    
+    const users = await getFromFirestore('users', 'email', email);
+    if (users.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    const userData = users[0];
+    await saveToFirestore('users', userData.uid, { ...userData, role: newRole });
+    
+    console.log(`Updated role for ${email} to ${newRole}`);
+    res.json({ success: true, message: 'Role updated successfully', newRole });
+  } catch (error) {
+    console.error('Error updating role:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.get('/api/auth/users', async (req, res) => {
   try {
     console.log('Fetching all users...');
     const users = await getFromFirestore('users');
     
-    // Remove sensitive data like passwordHash before sending
     const safeUsers = users.map(user => ({
       uid: user.uid,
       name: user.name,
@@ -353,7 +509,6 @@ app.get('/api/auth/users', async (req, res) => {
   }
 });
 
-// ============ RESET PASSWORD (For debugging) ============
 app.post('/api/auth/reset-password', async (req, res) => {
   try {
     const { email, newPassword } = req.body;
@@ -931,6 +1086,8 @@ app.get('/', (req, res) => {
     endpoints: {
       auth: '/api/auth',
       users: '/api/auth/users',
+      updateRole: '/api/auth/update-role',
+      resetPassword: '/api/auth/reset-password',
       courses: '/api/courses',
       lecturers: '/api/lecturers',
       lectures: '/api/lectures',
@@ -967,7 +1124,7 @@ app.listen(PORT, HOST, () => {
   console.log(`\n========================================`);
   console.log(`Server running on http://${HOST}:${PORT}`);
   console.log(`Firebase: ${firebaseConnected ? 'CONNECTED' : 'FALLBACK'}`);
-  console.log(`Mode: ${useRestApi ? 'REST API' : (adminSdkWorked ? 'ADMIN SDK' : 'LOCAL STORAGE')}`);
+  console.log(`Mode: ${useRestApi ? 'REST API' : (adminSdkWorked ? 'ADMIN SDK' : 'LOCAL_STORAGE')}`);
   console.log(`Ready to accept requests!`);
   console.log(`========================================\n`);
 });
