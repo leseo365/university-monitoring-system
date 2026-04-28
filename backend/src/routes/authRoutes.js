@@ -5,13 +5,13 @@ const router = express.Router();
 const getDb = (req) => req.app.locals.db;
 const getAuth = (req) => req.app.locals.auth;
 
-// REGISTER - Create new user account
+// register - Create new user account
 router.post('/register', async (req, res) => {
   const { name, email, password, role } = req.body;
   const db = getDb(req);
   const auth = getAuth(req);
   
-  console.log('📝 Registration attempt:', { name, email, role });
+  console.log(' Registration attempt:', { name, email, role });
   
   // Validate inputs
   if (!name || !email || !password) {
@@ -23,7 +23,7 @@ router.post('/register', async (req, res) => {
   
   // Check if Firebase is initialized
   if (!db || !auth) {
-    console.error('❌ Firebase not initialized');
+    console.error(' Firebase not initialized');
     return res.status(500).json({ 
       success: false,
       error: 'Database service unavailable. Please check server configuration.',
@@ -33,11 +33,11 @@ router.post('/register', async (req, res) => {
   
   try {
     // Check if user already exists in Firestore
-    console.log('🔍 Checking if user exists...');
+    console.log(' Checking if user exists...');
     const userQuery = await db.collection('users').where('email', '==', email).get();
     
     if (!userQuery.empty) {
-      console.log('❌ Registration failed: User already exists');
+      console.log(' Registration failed: User already exists');
       return res.status(400).json({ 
         success: false,
         error: 'User already exists with this email' 
@@ -45,7 +45,7 @@ router.post('/register', async (req, res) => {
     }
     
     // Create user in Firebase Auth
-    console.log('📝 Creating user in Firebase Auth...');
+    console.log(' Creating user in Firebase Auth...');
     let firebaseUser;
     try {
       firebaseUser = await auth.createUser({
@@ -53,7 +53,7 @@ router.post('/register', async (req, res) => {
         password: password,
         displayName: name
       });
-      console.log('✅ User created in Firebase Auth:', firebaseUser.uid);
+      console.log(' User created in Firebase Auth:', firebaseUser.uid);
     } catch (authError) {
       console.error('Firebase Auth error:', authError.code, authError.message);
       
@@ -85,7 +85,7 @@ router.post('/register', async (req, res) => {
     }
     
     // Store user data in Firestore
-    console.log('📝 Storing user in Firestore...');
+    console.log(' Storing user in Firestore...');
     const userData = {
       uid: firebaseUser.uid,
       name,
@@ -97,7 +97,7 @@ router.post('/register', async (req, res) => {
     };
     
     await db.collection('users').doc(firebaseUser.uid).set(userData);
-    console.log('✅ User stored in Firestore');
+    console.log(' User stored in Firestore');
     
     // Return success without password
     res.status(201).json({
@@ -112,7 +112,7 @@ router.post('/register', async (req, res) => {
     });
     
   } catch (error) {
-    console.error('❌ Registration error:', error);
+    console.error(' Registration error:', error);
     console.error('Error stack:', error.stack);
     
     res.status(500).json({ 
@@ -124,13 +124,13 @@ router.post('/register', async (req, res) => {
   }
 });
 
-// LOGIN - Authenticate user
+// login - Authenticate user
 router.post('/login', async (req, res) => {
   const { email, password } = req.body;
   const db = getDb(req);
   const auth = getAuth(req);
   
-  console.log('🔐 Login attempt:', { email });
+  console.log(' Login attempt:', { email });
   
   // Validate inputs
   if (!email || !password) {
@@ -142,7 +142,7 @@ router.post('/login', async (req, res) => {
   
   // Check if Firebase is initialized
   if (!db || !auth) {
-    console.error('❌ Firebase not initialized');
+    console.error(' Firebase not initialized');
     return res.status(500).json({ 
       success: false,
       error: 'Database service unavailable. Please check server configuration.',
@@ -152,11 +152,11 @@ router.post('/login', async (req, res) => {
   
   try {
     // Find user in Firestore
-    console.log('🔍 Looking up user in Firestore...');
+    console.log(' Looking up user in Firestore...');
     const userQuery = await db.collection('users').where('email', '==', email).get();
     
     if (userQuery.empty) {
-      console.log('❌ Login failed: User not found');
+      console.log(' Login failed: User not found');
       return res.status(401).json({ 
         success: false,
         error: 'Account not found. Please register first.' 
@@ -165,17 +165,15 @@ router.post('/login', async (req, res) => {
     
     const userDoc = userQuery.docs[0];
     const userData = userDoc.data();
-    console.log('✅ User found in Firestore:', userData.uid);
+    console.log(' User found in Firestore:', userData.uid);
     
-    // Note: For now, we'll accept any password for testing
-    // In production, you should verify the password properly
     
     // Update last login timestamp
     await db.collection('users').doc(userData.uid).update({
       lastLogin: new Date().toISOString()
     });
     
-    console.log(`✅ Login successful:`, { email: userData.email, role: userData.role });
+    console.log(` Login successful:`, { email: userData.email, role: userData.role });
     
     // Return user data (no token for now)
     res.json({
@@ -190,7 +188,7 @@ router.post('/login', async (req, res) => {
     });
     
   } catch (error) {
-    console.error('❌ Login error:', error);
+    console.error(' Login error:', error);
     console.error('Error stack:', error.stack);
     
     res.status(500).json({ 
@@ -202,12 +200,12 @@ router.post('/login', async (req, res) => {
   }
 });
 
-// GET user profile
+// get user profile
 router.get('/profile', async (req, res) => {
   const db = getDb(req);
   const userId = req.query.userId;
   
-  console.log('👤 Profile request for userId:', userId);
+  console.log(' Profile request for userId:', userId);
   
   if (!db) {
     return res.status(500).json({ 
@@ -254,7 +252,7 @@ router.get('/profile', async (req, res) => {
   }
 });
 
-// GET all users (for testing)
+// get all users (for testing)
 router.get('/users', async (req, res) => {
   const db = getDb(req);
   

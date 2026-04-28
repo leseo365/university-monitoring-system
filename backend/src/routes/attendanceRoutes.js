@@ -9,7 +9,7 @@ router.post('/', async (req, res) => {
   const { lectureId, lectureTitle, status, studentId, studentName, courseId } = req.body;
   const db = getDb(req);
   
-  console.log('📝 Attendance marking:', { lectureId, status, studentId });
+  console.log(' Attendance marking:', { lectureId, status, studentId });
   
   if (!lectureId || !status) {
     return res.status(400).json({ error: 'Please provide lectureId and status' });
@@ -42,7 +42,7 @@ router.post('/', async (req, res) => {
     };
     
     const docRef = await db.collection('attendance').add(record);
-    console.log(`✅ Attendance stored in Firestore: ${docRef.id}`);
+    console.log(` Attendance stored in Firestore: ${docRef.id}`);
     
     // Also update the lecture's attendance count
     const lectureRef = db.collection('lectures').doc(lectureId);
@@ -79,7 +79,7 @@ router.post('/bulk', async (req, res) => {
   const { lectureId, lectureTitle, students, courseId } = req.body;
   const db = getDb(req);
   
-  console.log('📝 Bulk attendance marking for lecture:', lectureId);
+  console.log(' Bulk attendance marking for lecture:', lectureId);
   
   if (!lectureId || !students || !Array.isArray(students)) {
     return res.status(400).json({ error: 'Please provide lectureId and students array' });
@@ -114,7 +114,7 @@ router.post('/bulk', async (req, res) => {
     }
     
     await batch.commit();
-    console.log(`✅ Bulk attendance stored in Firestore: ${students.length} records`);
+    console.log(` Bulk attendance stored in Firestore: ${students.length} records`);
     
     // Update the lecture's attendance count
     const lectureRef = db.collection('lectures').doc(lectureId);
@@ -146,7 +146,7 @@ router.get('/user', async (req, res) => {
   const db = getDb(req);
   const studentId = req.query.studentId || 'student1';
   
-  console.log('📋 Fetching user attendance for student:', studentId);
+  console.log(' Fetching user attendance for student:', studentId);
   
   if (!db) {
     return res.status(500).json({ error: 'Database not connected' });
@@ -162,7 +162,7 @@ router.get('/user', async (req, res) => {
       userAttendance.push({ id: doc.id, ...doc.data() });
     });
     
-    console.log(`✅ Retrieved ${userAttendance.length} attendance records from Firestore`);
+    console.log(`Retrieved ${userAttendance.length} attendance records from Firestore`);
     res.json(userAttendance);
   } catch (error) {
     console.error('Error fetching user attendance:', error);

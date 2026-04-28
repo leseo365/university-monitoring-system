@@ -14,11 +14,7 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 
-// Change this based on your platform
-// For Android Emulator: http://10.0.2.2:3000/api
-// For iOS Simulator: http://localhost:3000/api
-// For Web: http://localhost:3000/api
-// For Physical Device: http://YOUR_IP:3000/api
+
 const API_URL = Platform.select({
   android: 'http://10.0.2.2:3000/api',
   ios: 'http://localhost:3000/api',
@@ -143,8 +139,8 @@ const RegisterScreen = ({ navigation }) => {
   };
 
   const demoRegister = async (demoRole) => {
-    const demoName = demoRole === 'student' ? 'John Student' :
-                     demoRole === 'lecturer' ? 'Jane Lecturer' :
+    const demoName = demoRole === 'student' ? 'Thabo Student' :
+                     demoRole === 'lecturer' ? 'Thokoana Lecturer' :
                      demoRole === 'prl' ? 'Robert PRL' : 'Sarah PL';
     const demoEmail = `${demoRole}${Date.now()}@luct.com`; // Unique email each time
     const demoPassword = 'luct';
@@ -215,7 +211,7 @@ const RegisterScreen = ({ navigation }) => {
               onPress={() => setRole('student')}
             >
               <Text style={role === 'student' ? styles.roleTextActive : styles.roleText}>
-                📚 Student
+                 Student
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
@@ -223,7 +219,7 @@ const RegisterScreen = ({ navigation }) => {
               onPress={() => setRole('lecturer')}
             >
               <Text style={role === 'lecturer' ? styles.roleTextActive : styles.roleText}>
-                👨‍🏫 Lecturer
+                 Lecturer
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
@@ -231,7 +227,7 @@ const RegisterScreen = ({ navigation }) => {
               onPress={() => setRole('prl')}
             >
               <Text style={role === 'prl' ? styles.roleTextActive : styles.roleText}>
-                📊 PRL
+                 PRL
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
@@ -239,7 +235,7 @@ const RegisterScreen = ({ navigation }) => {
               onPress={() => setRole('pl')}
             >
               <Text style={role === 'pl' ? styles.roleTextActive : styles.roleText}>
-                📋 Program Leader
+                 Program Leader
               </Text>
             </TouchableOpacity>
           </View>
@@ -268,7 +264,7 @@ const RegisterScreen = ({ navigation }) => {
               style={styles.eyeButton}
               onPress={() => setShowPassword(!showPassword)}
             >
-              <Text style={styles.eyeText}>{showPassword ? '👁️' : '👁️‍🗨️'}</Text>
+              <Text style={styles.eyeText}>{showPassword ? '' : ''}</Text>
             </TouchableOpacity>
           </View>
           
@@ -285,7 +281,7 @@ const RegisterScreen = ({ navigation }) => {
               style={styles.eyeButton}
               onPress={() => setShowConfirmPassword(!showConfirmPassword)}
             >
-              <Text style={styles.eyeText}>{showConfirmPassword ? '👁️' : '👁️‍🗨️'}</Text>
+              <Text style={styles.eyeText}>{showConfirmPassword ? '' : ''}</Text>
             </TouchableOpacity>
           </View>
           
@@ -348,10 +344,10 @@ const RegisterScreen = ({ navigation }) => {
               🔧 Server: {API_URL}
             </Text>
             <Text style={styles.infoText}>
-              💡 Demo accounts use password: "luct"
+               Demo accounts use password: "luct"
             </Text>
             <Text style={styles.infoText}>
-              ⚡ Make sure backend server is running on port 3000
+               Make sure backend server is running on port 3000
             </Text>
           </View>
         </View>

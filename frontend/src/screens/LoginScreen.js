@@ -12,14 +12,7 @@ import {
   KeyboardAvoidingView
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import axios from 'axios';
-
-// Configure API URL based on platform
-const API_URL = Platform.select({
-  android: 'http://10.0.2.2:3000/api',  // Android emulator
-  ios: 'http://localhost:3000/api',      // iOS simulator
-  default: 'http://localhost:3000/api'   // Web
-});
+import { authService, statusService } from '../services/api';
 
 const LoginScreen = ({ navigation }) => {
   const [isLogin, setIsLogin] = useState(true);
@@ -35,6 +28,30 @@ const LoginScreen = ({ navigation }) => {
     return emailRegex.test(email);
   };
 
+  // Check backend connection on mount
+  React.useEffect(() => {
+    checkConnection();
+  }, []);
+
+  const checkConnection = async () => {
+    try {
+      console.log('Checking server connection...');
+      const status = await statusService.checkServer();
+      console.log('Server status:', status);
+      if (status.firebaseConnected === false) {
+        Alert.alert('Warning', 'Backend is running but Firebase not connected. Some features may not work.');
+      } else {
+        console.log('Server connection successful!');
+      }
+    } catch (error) {
+      console.error('Server connection failed:', error);
+      Alert.alert(
+        'Connection Error',
+        'Cannot connect to server.\n\nMake sure:\n1. Backend is running: cd backend && node server.js\n2. Server is on port 3000\n3. For Android emulator, use 10.0.2.2\n4. For physical device, use your computer IP address'
+      );
+    }
+  };
+
   const handleLogin = async () => {
     if (!email || !password) {
       Alert.alert('Error', 'Please enter your email and password');
@@ -48,28 +65,18 @@ const LoginScreen = ({ navigation }) => {
 
     setLoading(true);
     try {
-      console.log('🔐 Login attempt:', { email: email.toLowerCase() });
+      console.log('Login attempt:', { email: email.toLowerCase() });
       
-      const response = await axios.post(`${API_URL}/auth/login`, { 
-        email: email.toLowerCase().trim(), 
-        password 
-      });
+      const response = await authService.login(email.toLowerCase().trim(), password);
       
-      console.log('✅ Login response:', response.data);
+      console.log('Login response:', response);
       
-      if (response.data.success) {
-        // Store user data
-        await AsyncStorage.setItem('userToken', response.data.token || 'temp-token');
-        await AsyncStorage.setItem('userRole', response.data.user.role);
-        await AsyncStorage.setItem('userData', JSON.stringify(response.data.user));
-        await AsyncStorage.setItem('userEmail', response.data.user.email);
-        await AsyncStorage.setItem('userName', response.data.user.name);
-        await AsyncStorage.setItem('userUid', response.data.user.uid);
+      if (response.success) {
+        Alert.alert('Success', `Welcome back, ${response.user.name}!`);
         
-        Alert.alert('Success', `Welcome back, ${response.data.user.name}!`);
+        const userRole = response.user.role;
+        console.log('Navigating to:', userRole);
         
-        // Navigate based on role
-        const userRole = response.data.user.role;
         if (userRole === 'student') {
           navigation.replace('StudentDashboard');
         } else if (userRole === 'lecturer') {
@@ -83,39 +90,29 @@ const LoginScreen = ({ navigation }) => {
         }
       }
     } catch (error) {
-      console.error('❌ Login error:', error);
+      console.error('Login error:', error);
       
-      if (error.code === 'ECONNREFUSED') {
+      if (error.error === 'User not found') {
         Alert.alert(
-          'Connection Error', 
-          'Cannot connect to server. Please make sure:\n\n' +
-          '1. Backend is running: cd backend && node server.js\n' +
-          '2. Server is on port 3000'
-        );
-      } else if (error.response?.status === 401) {
-        const errorMessage = error.response?.data?.error || 'Invalid email or password';
-        if (errorMessage === 'User not found') {
-          Alert.alert(
-            'Account Not Found',
-            'No account found with this email. Would you like to register?',
-            [
-              { text: 'Cancel', style: 'cancel' },
-              { 
-                text: 'Register Now', 
-                onPress: () => {
-                  setIsLogin(false);
-                  setEmail(email);
-                }
+          'Account Not Found',
+          'No account found with this email. Would you like to register?',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { 
+              text: 'Register Now', 
+              onPress: () => {
+                setIsLogin(false);
+                setEmail(email);
               }
-            ]
-          );
-        } else {
-          Alert.alert('Login Failed', errorMessage);
-        }
-      } else if (error.response?.data?.error) {
-        Alert.alert('Login Failed', error.response.data.error);
+            }
+          ]
+        );
+      } else if (error.error && error.error.includes('timeout')) {
+        Alert.alert('Connection Error', 'Request timed out. Please check if backend server is running.');
+      } else if (error.error && error.error.includes('Network error')) {
+        Alert.alert('Network Error', 'Cannot connect to server. Please check your network and backend status.');
       } else {
-        Alert.alert('Error', 'Network error. Please check your connection.');
+        Alert.alert('Login Failed', error.error || 'Invalid email or password');
       }
     } finally {
       setLoading(false);
@@ -145,18 +142,18 @@ const LoginScreen = ({ navigation }) => {
 
     setLoading(true);
     try {
-      console.log('📝 Registration attempt:', { name, email: email.toLowerCase(), role: selectedRole });
+      console.log('Registration attempt:', { name, email: email.toLowerCase(), role: selectedRole });
       
-      const response = await axios.post(`${API_URL}/auth/register`, {
+      const response = await authService.register({
         name: name.trim(),
         email: email.toLowerCase().trim(),
         password,
         role: selectedRole
       });
       
-      console.log('✅ Registration response:', response.data);
+      console.log('Registration response:', response);
       
-      if (response.data.success) {
+      if (response.success) {
         Alert.alert(
           'Registration Successful!',
           `Welcome ${name}! Your ${selectedRole.toUpperCase()} account has been created.\n\nPlease login with your credentials.`,
@@ -164,7 +161,6 @@ const LoginScreen = ({ navigation }) => {
             { 
               text: 'Go to Login', 
               onPress: () => {
-                // Clear form and switch to login
                 setIsLogin(true);
                 setName('');
                 setEmail('');
@@ -177,26 +173,21 @@ const LoginScreen = ({ navigation }) => {
         );
       }
     } catch (error) {
-      console.error('❌ Registration error:', error);
+      console.error('Registration error:', error);
       
-      if (error.code === 'ECONNREFUSED') {
+      if (error.error === 'User already exists') {
         Alert.alert(
-          'Connection Error', 
-          'Cannot connect to server. Please make sure backend is running.'
-        );
-      } else if (error.response?.status === 400 && error.response?.data?.error === 'User already exists') {
-        Alert.alert(
-          'Registration Failed', 
+          'Registration Failed',
           'An account with this email already exists. Please login instead.',
           [
             { text: 'Go to Login', onPress: () => setIsLogin(true) },
             { text: 'Try Again', style: 'cancel' }
           ]
         );
-      } else if (error.response?.data?.error) {
-        Alert.alert('Registration Failed', error.response.data.error);
+      } else if (error.error && error.error.includes('timeout')) {
+        Alert.alert('Connection Error', 'Request timed out. Please check if backend server is running.');
       } else {
-        Alert.alert('Error', 'Could not create account. Please try again.');
+        Alert.alert('Registration Failed', error.error || 'Could not create account');
       }
     } finally {
       setLoading(false);
@@ -214,14 +205,12 @@ const LoginScreen = ({ navigation }) => {
         keyboardShouldPersistTaps="handled"
       >
         <View style={styles.card}>
-          {/* Logo and Title */}
           <View style={styles.logoContainer}>
-            <Text style={styles.logo}>🎓</Text>
+            <Text style={styles.logo}> </Text>
             <Text style={styles.title}>Limkokwing University</Text>
             <Text style={styles.subtitle}>Monitoring System</Text>
           </View>
 
-          {/* Toggle between Login and Register */}
           <View style={styles.toggleContainer}>
             <TouchableOpacity
               style={[styles.toggleButton, isLogin && styles.activeToggle]}
@@ -238,7 +227,6 @@ const LoginScreen = ({ navigation }) => {
           </View>
 
           {!isLogin ? (
-            // REGISTRATION FORM
             <>
               <TextInput
                 style={styles.input}
@@ -251,10 +239,10 @@ const LoginScreen = ({ navigation }) => {
               <Text style={styles.label}>Select Role:</Text>
               <View style={styles.roleButtonsContainer}>
                 {[
-                  { role: 'student', emoji: '📚', label: 'Student' },
-                  { role: 'lecturer', emoji: '👨‍🏫', label: 'Lecturer' },
-                  { role: 'prl', emoji: '📊', label: 'PRL' },
-                  { role: 'pl', emoji: '📋', label: 'Program Leader' }
+                  { role: 'student', label: 'Student' },
+                  { role: 'lecturer', label: 'Lecturer' },
+                  { role: 'prl', label: 'PRL' },
+                  { role: 'pl', label: 'Program Leader' }
                 ].map((item) => (
                   <TouchableOpacity
                     key={item.role}
@@ -264,7 +252,6 @@ const LoginScreen = ({ navigation }) => {
                     ]}
                     onPress={() => setSelectedRole(item.role)}
                   >
-                    <Text style={styles.roleSelectEmoji}>{item.emoji}</Text>
                     <Text style={[
                       styles.roleSelectText,
                       selectedRole === item.role && styles.roleSelectTextActive
@@ -309,24 +296,14 @@ const LoginScreen = ({ navigation }) => {
                 onPress={handleRegister} 
                 disabled={loading}
               >
-                {loading ? (
-                  <ActivityIndicator color="#fff" />
-                ) : (
-                  <Text style={styles.registerButtonText}>Create Account</Text>
-                )}
+                {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.registerButtonText}>Create Account</Text>}
               </TouchableOpacity>
 
-              <TouchableOpacity 
-                style={styles.switchLink}
-                onPress={() => setIsLogin(true)}
-              >
-                <Text style={styles.switchText}>
-                  Already have an account? <Text style={styles.switchHighlight}>Sign In</Text>
-                </Text>
+              <TouchableOpacity style={styles.switchLink} onPress={() => setIsLogin(true)}>
+                <Text style={styles.switchText}>Already have an account? <Text style={styles.switchHighlight}>Sign In</Text></Text>
               </TouchableOpacity>
             </>
           ) : (
-            // LOGIN FORM
             <>
               <TextInput
                 style={styles.input}
@@ -353,20 +330,11 @@ const LoginScreen = ({ navigation }) => {
                 onPress={handleLogin} 
                 disabled={loading}
               >
-                {loading ? (
-                  <ActivityIndicator color="#fff" />
-                ) : (
-                  <Text style={styles.loginButtonText}>Sign In</Text>
-                )}
+                {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.loginButtonText}>Sign In</Text>}
               </TouchableOpacity>
 
-              <TouchableOpacity 
-                style={styles.switchLink}
-                onPress={() => setIsLogin(false)}
-              >
-                <Text style={styles.switchText}>
-                  Don't have an account? <Text style={styles.switchHighlight}>Create Account</Text>
-                </Text>
+              <TouchableOpacity style={styles.switchLink} onPress={() => setIsLogin(false)}>
+                <Text style={styles.switchText}>Don't have an account? <Text style={styles.switchHighlight}>Create Account</Text></Text>
               </TouchableOpacity>
             </>
           )}
@@ -385,168 +353,34 @@ const LoginScreen = ({ navigation }) => {
 };
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#f5f5f5',
-  },
-  scrollContainer: {
-    flexGrow: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
-  },
-  card: {
-    backgroundColor: '#fff',
-    borderRadius: 20,
-    padding: 25,
-    width: '100%',
-    maxWidth: 450,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    elevation: 8,
-  },
-  logoContainer: {
-    alignItems: 'center',
-    marginBottom: 25,
-  },
-  logo: {
-    fontSize: 50,
-    marginBottom: 8,
-  },
-  title: {
-    fontSize: 22,
-    fontWeight: 'bold',
-    textAlign: 'center',
-    color: '#6200ee',
-  },
-  subtitle: {
-    fontSize: 13,
-    textAlign: 'center',
-    color: '#666',
-    marginTop: 3,
-  },
-  toggleContainer: {
-    flexDirection: 'row',
-    backgroundColor: '#f0f0f0',
-    borderRadius: 30,
-    marginBottom: 25,
-    padding: 4,
-  },
-  toggleButton: {
-    flex: 1,
-    paddingVertical: 12,
-    borderRadius: 25,
-    alignItems: 'center',
-  },
-  activeToggle: {
-    backgroundColor: '#6200ee',
-  },
-  toggleText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#666',
-  },
-  activeToggleText: {
-    color: '#fff',
-  },
-  label: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 10,
-    marginTop: 5,
-  },
-  roleButtonsContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
-    marginBottom: 20,
-  },
-  roleSelectButton: {
-    width: '48%',
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 12,
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 10,
-    marginBottom: 10,
-    backgroundColor: '#f9f9f9',
-  },
-  roleSelectActive: {
-    borderColor: '#6200ee',
-    backgroundColor: '#f3e5f5',
-  },
-  roleSelectEmoji: {
-    fontSize: 20,
-    marginRight: 10,
-  },
-  roleSelectText: {
-    fontSize: 13,
-    fontWeight: '500',
-    color: '#666',
-  },
-  roleSelectTextActive: {
-    color: '#6200ee',
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 10,
-    padding: 14,
-    marginBottom: 15,
-    fontSize: 15,
-    backgroundColor: '#fff',
-  },
-  loginButton: {
-    backgroundColor: '#6200ee',
-    borderRadius: 10,
-    padding: 16,
-    alignItems: 'center',
-    marginTop: 10,
-  },
-  loginButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  registerButton: {
-    backgroundColor: '#4CAF50',
-    borderRadius: 10,
-    padding: 16,
-    alignItems: 'center',
-    marginTop: 10,
-  },
-  registerButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  switchLink: {
-    marginTop: 20,
-    alignItems: 'center',
-  },
-  switchText: {
-    fontSize: 14,
-    color: '#666',
-  },
-  switchHighlight: {
-    color: '#6200ee',
-    fontWeight: 'bold',
-  },
-  infoContainer: {
-    marginTop: 25,
-    paddingTop: 15,
-    borderTopWidth: 1,
-    borderTopColor: '#eee',
-  },
-  infoText: {
-    fontSize: 12,
-    color: '#999',
-    textAlign: 'center',
-  },
+  container: { flex: 1, backgroundColor: '#f5f5f5' },
+  scrollContainer: { flexGrow: 1, justifyContent: 'center', alignItems: 'center', padding: 20 },
+  card: { backgroundColor: '#fff', borderRadius: 20, padding: 25, width: '100%', maxWidth: 450, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.1, shadowRadius: 12, elevation: 8 },
+  logoContainer: { alignItems: 'center', marginBottom: 25 },
+  logo: { fontSize: 24, fontWeight: 'bold', marginBottom: 8, color: '#6200ee' },
+  title: { fontSize: 22, fontWeight: 'bold', textAlign: 'center', color: '#6200ee' },
+  subtitle: { fontSize: 13, textAlign: 'center', color: '#666', marginTop: 3 },
+  toggleContainer: { flexDirection: 'row', backgroundColor: '#f0f0f0', borderRadius: 30, marginBottom: 25, padding: 4 },
+  toggleButton: { flex: 1, paddingVertical: 12, borderRadius: 25, alignItems: 'center' },
+  activeToggle: { backgroundColor: '#6200ee' },
+  toggleText: { fontSize: 14, fontWeight: '600', color: '#666' },
+  activeToggleText: { color: '#fff' },
+  label: { fontSize: 14, fontWeight: '600', color: '#333', marginBottom: 10, marginTop: 5 },
+  roleButtonsContainer: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', marginBottom: 20 },
+  roleSelectButton: { width: '48%', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', padding: 12, borderWidth: 1, borderColor: '#ddd', borderRadius: 10, marginBottom: 10, backgroundColor: '#f9f9f9' },
+  roleSelectActive: { borderColor: '#6200ee', backgroundColor: '#f3e5f5' },
+  roleSelectText: { fontSize: 13, fontWeight: '500', color: '#666' },
+  roleSelectTextActive: { color: '#6200ee' },
+  input: { borderWidth: 1, borderColor: '#ddd', borderRadius: 10, padding: 14, marginBottom: 15, fontSize: 15, backgroundColor: '#fff' },
+  loginButton: { backgroundColor: '#6200ee', borderRadius: 10, padding: 16, alignItems: 'center', marginTop: 10 },
+  loginButtonText: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
+  registerButton: { backgroundColor: '#4CAF50', borderRadius: 10, padding: 16, alignItems: 'center', marginTop: 10 },
+  registerButtonText: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
+  switchLink: { marginTop: 20, alignItems: 'center' },
+  switchText: { fontSize: 14, color: '#666' },
+  switchHighlight: { color: '#6200ee', fontWeight: 'bold' },
+  infoContainer: { marginTop: 25, paddingTop: 15, borderTopWidth: 1, borderTopColor: '#eee' },
+  infoText: { fontSize: 12, color: '#999', textAlign: 'center' },
 });
 
 export default LoginScreen;

@@ -2,6 +2,7 @@
 const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const admin = require('firebase-admin');
+const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
 
@@ -11,508 +12,840 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Initialize Firebase
+// firebase configuration
 let db;
 let auth;
 let firebaseConnected = false;
+let useRestApi = false;
+let adminSdkWorked = false;
 
-const serviceAccountPath = path.join(__dirname, 'serviceAccountKey.json');
+// Firebase REST API config
+const FIREBASE_API_KEY = "AIzaSyD4lD8FVko6H2UoUlvzb_O19f_ASAE2caQ";
+const FIREBASE_PROJECT_ID = "university-monitoring-system";
+const FIREBASE_WEB_API_KEY = "AIzaSyD4lD8FVko6H2UoUlvzb_O19f_ASAE2caQ";
+
+// Local fallback storage
+const localDB = {
+  users: [],
+  courses: [],
+  lecturers: [],
+  lectures: [],
+  reports: [],
+  lecturerReports: [],
+  courseRatings: [],
+  lecturerRatings: [],
+  lectureRatings: [],
+  studentAttendance: []
+};
 
 console.log('\n========================================');
-console.log('🔌 CHECKING FIREBASE CONNECTION...');
+console.log('FIREBASE INITIALIZATION');
 console.log('========================================\n');
 
-if (fs.existsSync(serviceAccountPath)) {
-  try {
-    const serviceAccount = JSON.parse(fs.readFileSync(serviceAccountPath, 'utf8'));
-    admin.initializeApp({
-      credential: admin.credential.cert(serviceAccount),
-      databaseURL: "https://university-monitoring-system-default-rtdb.firebaseio.com"
-    });
-    db = admin.firestore();
-    auth = admin.auth();
-    firebaseConnected = true;
-    console.log('✅ Firebase Connected Successfully!');
-    console.log(`📁 Project ID: ${serviceAccount.project_id}`);
-    console.log(`📧 Client Email: ${serviceAccount.client_email}`);
-  } catch (error) {
-    console.error('❌ Firebase Error:', error.message);
-    process.exit(1);
+// Function to initialize Firebase
+async function initializeFirebase() {
+  const serviceAccountPath = path.join(__dirname, 'serviceAccountKey.json');
+  
+  if (fs.existsSync(serviceAccountPath)) {
+    try {
+      const fileContent = fs.readFileSync(serviceAccountPath, 'utf8');
+      const serviceAccount = JSON.parse(fileContent);
+      
+      console.log('Service account loaded');
+      console.log(`Project ID: ${serviceAccount.project_id}`);
+      
+      admin.initializeApp({
+        credential: admin.credential.cert(serviceAccount),
+        projectId: serviceAccount.project_id,
+        databaseURL: `https://${serviceAccount.project_id}.firebaseio.com`
+      });
+      
+      db = admin.firestore();
+      auth = admin.auth();
+      adminSdkWorked = true;
+      firebaseConnected = true;
+      
+      console.log('Firebase Admin SDK initialized!');
+      
+      try {
+        await auth.listUsers(1);
+        console.log('Admin SDK connection verified!');
+        return;
+      } catch (error) {
+        console.log('Admin SDK connection failed:', error.message);
+        adminSdkWorked = false;
+        firebaseConnected = false;
+      }
+    } catch (error) {
+      console.error('Admin SDK Error:', error.message);
+      adminSdkWorked = false;
+    }
+  } else {
+    console.log('No service account file found');
   }
-} else {
-  console.error('❌ serviceAccountKey.json not found');
-  console.log('Please download serviceAccountKey.json from Firebase Console');
-  process.exit(1);
+  
+  if (!adminSdkWorked) {
+    console.log('\nAttempting Firebase REST API connection...');
+    
+    try {
+      const testResponse = await axios.post(
+        `https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${FIREBASE_WEB_API_KEY}`,
+        {
+          email: `test${Date.now()}@temp.com`,
+          password: "test123",
+          returnSecureToken: true
+        },
+        { timeout: 10000 }
+      );
+      
+      if (testResponse.data) {
+        useRestApi = true;
+        firebaseConnected = true;
+        console.log('Firebase REST API connected successfully!');
+        console.log('Using REST API mode');
+        return;
+      }
+    } catch (error) {
+      console.log('REST API failed:', error.message);
+    }
+  }
+  
+  if (!firebaseConnected) {
+    console.log('\nAll Firebase connection methods failed!');
+    console.log('Using LOCAL IN-MEMORY STORAGE as fallback');
+    console.log('Data will NOT persist after server restart\n');
+  }
 }
 
-console.log('\n========================================');
-console.log('🚀 SERVER STARTING');
-console.log('========================================\n');
+// Helper functions
+async function saveToFirestore(collection, docId, data) {
+  if (useRestApi) {
+    try {
+      await axios.patch(
+        `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents/${collection}/${docId}?key=${FIREBASE_WEB_API_KEY}`,
+        {
+          fields: Object.fromEntries(Object.entries(data).map(([k, v]) => [
+            k, { stringValue: String(v) }
+          ]))
+        },
+        { timeout: 10000 }
+      );
+      return true;
+    } catch (error) {
+      console.error('REST API save error:', error.message);
+      return false;
+    }
+  } else if (adminSdkWorked && db) {
+    await db.collection(collection).doc(docId).set(data);
+    return true;
+  } else {
+    if (!localDB[collection]) localDB[collection] = [];
+    localDB[collection].push({ id: docId, ...data });
+    return true;
+  }
+}
 
-// ============ AUTHENTICATION ============
-app.post('/api/auth/register', async (req, res) => {
+async function getFromFirestore(collection, queryField = null, queryValue = null) {
+  if (useRestApi) {
+    try {
+      const response = await axios.get(
+        `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents/${collection}?key=${FIREBASE_WEB_API_KEY}`,
+        { timeout: 10000 }
+      );
+      
+      const documents = response.data.documents || [];
+      return documents.map(doc => ({
+        id: doc.name.split('/').pop(),
+        ...Object.fromEntries(Object.entries(doc.fields || {}).map(([k, v]) => [k, Object.values(v)[0]]))
+      }));
+    } catch (error) {
+      console.error('REST API get error:', error.message);
+      return [];
+    }
+  } else if (adminSdkWorked && db) {
+    let query = db.collection(collection);
+    if (queryField && queryValue) {
+      query = query.where(queryField, '==', queryValue);
+    }
+    const snapshot = await query.get();
+    const results = [];
+    snapshot.forEach(doc => results.push({ id: doc.id, ...doc.data() }));
+    return results;
+  } else {
+    let results = localDB[collection] || [];
+    if (queryField && queryValue) {
+      results = results.filter(item => item[queryField] === queryValue);
+    }
+    return results;
+  }
+}
+
+// Start initialization
+initializeFirebase().then(() => {
   console.log('\n========================================');
-  console.log('📝 REGISTRATION REQUEST');
-  console.log('========================================');
-  console.log(`📧 Email: ${req.body.email}`);
-  console.log(`👤 Name: ${req.body.name}`);
-  console.log(`🎭 Role: ${req.body.role || 'student'}`);
+  console.log(`FIREBASE STATUS: ${firebaseConnected ? 'CONNECTED' : 'FALLBACK MODE'}`);
+  console.log(`MODE: ${useRestApi ? 'REST API' : (adminSdkWorked ? 'ADMIN SDK' : 'LOCAL STORAGE')}`);
+  console.log('========================================\n');
+});
+
+// authentication
+app.post('/api/auth/register', async (req, res) => {
+  console.log('\nREGISTER:', req.body.email);
   
   try {
     const { name, email, password, role } = req.body;
     
-    // Check if user already exists
-    console.log('🔍 Checking if user already exists...');
-    const existingUser = await db.collection('users').where('email', '==', email).get();
-    if (!existingUser.empty) {
-      console.log('❌ REGISTRATION FAILED: User already exists');
-      return res.status(400).json({ 
-        success: false, 
-        error: 'User already exists',
-        message: `An account with ${email} already exists. Please login instead.`
-      });
+    if (!name || !email || !password) {
+      return res.status(400).json({ error: 'All fields required' });
     }
     
-    // Create user in Firebase Auth
-    console.log('👤 Creating user in Firebase Auth...');
-    const firebaseUser = await auth.createUser({ 
-      email, 
-      password, 
-      displayName: name 
-    });
-    console.log('✅ Firebase Auth user created:', firebaseUser.uid);
+    const existingUsers = await getFromFirestore('users', 'email', email);
+    if (existingUsers.length > 0) {
+      return res.status(400).json({ error: 'User already exists' });
+    }
     
-    // Hash password for storage
-    console.log('🔐 Hashing password...');
+    let firebaseUid = null;
+    
+    if (useRestApi) {
+      try {
+        const registerRes = await axios.post(
+          `https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${FIREBASE_WEB_API_KEY}`,
+          { email, password, returnSecureToken: true },
+          { timeout: 10000 }
+        );
+        firebaseUid = registerRes.data.localId;
+        console.log('Created via REST API:', firebaseUid);
+      } catch (authError) {
+        console.error('REST API auth error:', authError.response?.data?.error?.message);
+        firebaseUid = Date.now().toString();
+      }
+    } else if (adminSdkWorked && auth) {
+      try {
+        const firebaseUser = await auth.createUser({ email, password, displayName: name });
+        firebaseUid = firebaseUser.uid;
+        console.log('Created via Admin SDK:', firebaseUid);
+      } catch (authError) {
+        console.error('Admin SDK auth error:', authError.message);
+        firebaseUid = Date.now().toString();
+      }
+    } else {
+      firebaseUid = Date.now().toString();
+    }
+    
     const hashedPassword = await bcrypt.hash(password, 10);
     
-    // Store user in Firestore
-    console.log('💾 Storing user in Firestore...');
     const userData = {
-      uid: firebaseUser.uid,
+      uid: firebaseUid,
       name,
       email,
       role: role || 'student',
       passwordHash: hashedPassword,
-      createdAt: new Date().toISOString(),
-      lastLogin: null
+      createdAt: new Date().toISOString()
     };
     
-    await db.collection('users').doc(firebaseUser.uid).set(userData);
-    console.log('✅ User stored in Firestore');
+    await saveToFirestore('users', firebaseUid, userData);
+    console.log('User stored in Firestore');
     
-    console.log('✅ REGISTRATION SUCCESSFUL!');
-    console.log(`📧 Email: ${email}`);
-    console.log(`👤 Name: ${name}`);
-    console.log(`🎭 Role: ${role || 'student'}`);
-    console.log('========================================\n');
-    
-    res.json({ 
-      success: true, 
-      message: 'Registration successful! You can now login.',
-      user: { uid: firebaseUser.uid, name, email, role: role || 'student' }
+    res.json({
+      success: true,
+      message: 'Registration successful',
+      user: { uid: firebaseUid, name, email, role: role || 'student' }
     });
     
   } catch (error) {
-    console.error('❌ REGISTRATION ERROR:', error.message);
-    console.log('========================================\n');
-    res.status(500).json({ 
-      success: false, 
-      error: error.message,
-      message: 'Registration failed. Please try again.'
-    });
+    console.error('Error:', error.message);
+    res.status(500).json({ error: error.message });
   }
 });
 
 app.post('/api/auth/login', async (req, res) => {
-  console.log('\n========================================');
-  console.log('🔐 LOGIN REQUEST');
-  console.log('========================================');
-  console.log(`📧 Email: ${req.body.email}`);
+  console.log('\nLOGIN:', req.body.email);
   
   try {
     const { email, password } = req.body;
     
-    // Find user in Firestore
-    console.log('🔍 Searching for user in database...');
-    const userQuery = await db.collection('users').where('email', '==', email).get();
+    const users = await getFromFirestore('users', 'email', email);
     
-    if (userQuery.empty) {
-      console.log('❌ LOGIN FAILED: User not found');
-      console.log(`📧 Email ${email} is not registered`);
-      console.log('========================================\n');
-      return res.status(401).json({ 
-        success: false, 
-        error: 'User not found',
-        message: `No account found with ${email}. Please register first.`
-      });
+    if (users.length === 0) {
+      return res.status(401).json({ error: 'User not found. Please register first.' });
     }
     
-    const userDoc = userQuery.docs[0];
-    const userData = userDoc.data();
-    console.log(`✅ User found: ${userData.name} (${userData.role})`);
-    
-    // Verify password
-    console.log('🔐 Verifying password...');
+    const userData = users[0];
     const isValid = await bcrypt.compare(password, userData.passwordHash);
     
     if (!isValid) {
-      console.log('❌ LOGIN FAILED: Invalid password');
-      console.log(`📧 Email: ${email} - Wrong password entered`);
-      console.log('========================================\n');
-      return res.status(401).json({ 
-        success: false, 
-        error: 'Invalid password',
-        message: 'Incorrect password. Please try again.'
-      });
+      return res.status(401).json({ error: 'Invalid password' });
     }
     
-    console.log('✅ Password verified successfully');
+    console.log('Login successful');
     
-    // Update last login
-    console.log('📝 Updating last login time...');
-    await db.collection('users').doc(userData.uid).update({ 
-      lastLogin: new Date().toISOString() 
-    });
-    
-    console.log('✅ LOGIN SUCCESSFUL!');
-    console.log(`📧 Email: ${userData.email}`);
-    console.log(`👤 Name: ${userData.name}`);
-    console.log(`🎭 Role: ${userData.role}`);
-    console.log(`🕐 Last login: ${new Date().toISOString()}`);
-    console.log('========================================\n');
-    
-    res.json({ 
-      success: true, 
-      message: `Welcome back, ${userData.name}!`,
-      user: { 
-        uid: userData.uid, 
-        name: userData.name, 
-        email: userData.email, 
-        role: userData.role,
-        lastLogin: userData.lastLogin
-      }
+    res.json({
+      success: true,
+      user: { uid: userData.uid, name: userData.name, email: userData.email, role: userData.role }
     });
     
   } catch (error) {
-    console.error('❌ LOGIN ERROR:', error.message);
-    console.log('========================================\n');
-    res.status(500).json({ 
-      success: false, 
-      error: error.message,
-      message: 'Login failed. Please try again.'
-    });
+    console.error('Error:', error.message);
+    res.status(500).json({ error: error.message });
   }
 });
 
-// ============ COURSES ============
+// courses
 app.get('/api/courses', async (req, res) => {
   try {
-    const snapshot = await db.collection('courses').get();
-    const courses = [];
-    snapshot.forEach(doc => courses.push({ id: doc.id, ...doc.data() }));
-    console.log(`📚 Retrieved ${courses.length} courses`);
-    res.json({ courses, count: courses.length });
+    const courses = await getFromFirestore('courses');
+    res.json({ courses });
   } catch (error) {
-    console.error('Error fetching courses:', error.message);
     res.status(500).json({ error: error.message });
   }
 });
 
 app.post('/api/courses', async (req, res) => {
-  console.log('\n📚 ADDING NEW COURSE');
-  console.log(`📖 Course Name: ${req.body.name}`);
-  console.log(`🔢 Course Code: ${req.body.code}`);
-  console.log(`🎯 Stream: ${req.body.stream}`);
-  
   try {
-    const { name, code, stream, credits, semester } = req.body;
+    const { name, code, stream, credits, semester, description } = req.body;
+    const courseId = `C${Date.now()}`;
     const courseData = {
+      id: courseId,
       name, code, stream,
       credits: parseInt(credits) || 120,
       semester: parseInt(semester) || 1,
+      description: description || '',
       lecturerId: null,
       lecturerName: null,
       createdAt: new Date().toISOString()
     };
-    const docRef = await db.collection('courses').add(courseData);
-    console.log(`✅ Course added successfully! ID: ${docRef.id}`);
-    res.json({ success: true, message: 'Course added successfully', course: { id: docRef.id, ...courseData } });
+    
+    await saveToFirestore('courses', courseId, courseData);
+    console.log(`Course saved to Firestore: ${name}`);
+    res.json({ success: true, course: courseData });
   } catch (error) {
-    console.error('❌ Error adding course:', error.message);
     res.status(500).json({ error: error.message });
   }
 });
 
 app.put('/api/courses/:id/assign', async (req, res) => {
-  console.log('\n👨‍🏫 ASSIGNING LECTURER TO COURSE');
-  console.log(`📖 Course ID: ${req.params.id}`);
-  console.log(`👨‍🏫 Lecturer ID: ${req.body.lecturerId}`);
-  
   try {
     const { lecturerId } = req.body;
-    const lecturer = await db.collection('lecturers').doc(lecturerId).get();
+    const courseId = req.params.id;
     
-    if (!lecturer.exists) {
-      console.log('❌ Lecturer not found');
-      return res.status(404).json({ error: 'Lecturer not found' });
+    const lecturers = await getFromFirestore('lecturers');
+    const lecturer = lecturers.find(l => l.id === lecturerId);
+    
+    if (useRestApi) {
+      await axios.patch(
+        `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents/courses/${courseId}?key=${FIREBASE_WEB_API_KEY}`,
+        {
+          fields: {
+            lecturerId: { stringValue: lecturerId },
+            lecturerName: { stringValue: lecturer?.name || '' }
+          }
+        },
+        { timeout: 10000 }
+      );
+    } else if (adminSdkWorked && db) {
+      await db.collection('courses').doc(courseId).update({ lecturerId, lecturerName: lecturer?.name });
+    } else {
+      const course = localDB.courses.find(c => c.id === courseId);
+      if (course) {
+        course.lecturerId = lecturerId;
+        course.lecturerName = lecturer?.name;
+      }
     }
     
-    await db.collection('courses').doc(req.params.id).update({
-      lecturerId,
-      lecturerName: lecturer.data().name,
-      assignedAt: new Date().toISOString()
-    });
-    
-    console.log(`✅ Lecturer ${lecturer.data().name} assigned successfully`);
-    res.json({ success: true, message: 'Lecturer assigned successfully' });
+    console.log(`Lecturer assigned to course in Firestore: ${courseId}`);
+    res.json({ success: true });
   } catch (error) {
-    console.error('❌ Error assigning lecturer:', error.message);
     res.status(500).json({ error: error.message });
   }
 });
 
 app.put('/api/courses/:id/unassign', async (req, res) => {
-  console.log('\n🔄 UNASSIGNING LECTURER FROM COURSE');
-  console.log(`📖 Course ID: ${req.params.id}`);
-  
   try {
-    await db.collection('courses').doc(req.params.id).update({ 
-      lecturerId: null, 
-      lecturerName: null 
-    });
-    console.log(`✅ Lecturer unassigned successfully`);
-    res.json({ success: true, message: 'Lecturer unassigned successfully' });
+    const courseId = req.params.id;
+    
+    if (useRestApi) {
+      await axios.patch(
+        `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents/courses/${courseId}?key=${FIREBASE_WEB_API_KEY}`,
+        {
+          fields: {
+            lecturerId: { stringValue: 'null' },
+            lecturerName: { stringValue: '' }
+          }
+        },
+        { timeout: 10000 }
+      );
+    } else if (adminSdkWorked && db) {
+      await db.collection('courses').doc(courseId).update({ lecturerId: null, lecturerName: null });
+    } else {
+      const course = localDB.courses.find(c => c.id === courseId);
+      if (course) {
+        course.lecturerId = null;
+        course.lecturerName = null;
+      }
+    }
+    
+    console.log(`Lecturer unassigned from course in Firestore: ${courseId}`);
+    res.json({ success: true });
   } catch (error) {
-    console.error('❌ Error unassigning lecturer:', error.message);
     res.status(500).json({ error: error.message });
   }
 });
 
 app.delete('/api/courses/:id', async (req, res) => {
-  console.log('\n🗑️ DELETING COURSE');
-  console.log(`📖 Course ID: ${req.params.id}`);
-  
   try {
-    await db.collection('courses').doc(req.params.id).delete();
-    console.log(`✅ Course deleted successfully`);
-    res.json({ success: true, message: 'Course deleted successfully' });
+    const courseId = req.params.id;
+    
+    if (useRestApi) {
+      await axios.delete(
+        `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents/courses/${courseId}?key=${FIREBASE_WEB_API_KEY}`,
+        { timeout: 10000 }
+      );
+    } else if (adminSdkWorked && db) {
+      await db.collection('courses').doc(courseId).delete();
+    } else {
+      const index = localDB.courses.findIndex(c => c.id === courseId);
+      if (index !== -1) localDB.courses.splice(index, 1);
+    }
+    
+    console.log(`Course deleted from Firestore: ${courseId}`);
+    res.json({ success: true });
   } catch (error) {
-    console.error('❌ Error deleting course:', error.message);
     res.status(500).json({ error: error.message });
   }
 });
 
-// ============ LECTURERS ============
+// lecturers
 app.get('/api/lecturers', async (req, res) => {
   try {
-    const snapshot = await db.collection('lecturers').get();
-    const lecturers = [];
-    snapshot.forEach(doc => lecturers.push({ id: doc.id, ...doc.data() }));
-    console.log(`👨‍🏫 Retrieved ${lecturers.length} lecturers`);
+    const lecturers = await getFromFirestore('lecturers');
     res.json({ lecturers });
   } catch (error) {
-    console.error('Error fetching lecturers:', error.message);
     res.status(500).json({ error: error.message });
   }
 });
 
 app.post('/api/lecturers', async (req, res) => {
-  console.log('\n👨‍🏫 ADDING NEW LECTURER');
-  console.log(`📧 Email: ${req.body.email}`);
-  console.log(`👤 Name: ${req.body.name}`);
-  console.log(`📚 Department: ${req.body.department || 'Not specified'}`);
-  
   try {
     const { name, email, department, specialization } = req.body;
+    const lecturerId = `LEC${Date.now()}`;
     const lecturerData = {
+      id: lecturerId,
       name, email,
       department: department || '',
       specialization: specialization || '',
       createdAt: new Date().toISOString()
     };
-    const docRef = await db.collection('lecturers').add(lecturerData);
-    console.log(`✅ Lecturer added successfully! ID: ${docRef.id}`);
-    res.json({ success: true, message: 'Lecturer added successfully', lecturer: { id: docRef.id, ...lecturerData } });
+    
+    await saveToFirestore('lecturers', lecturerId, lecturerData);
+    console.log(`Lecturer saved to Firestore: ${name}`);
+    res.json({ success: true, lecturer: lecturerData });
   } catch (error) {
-    console.error('❌ Error adding lecturer:', error.message);
     res.status(500).json({ error: error.message });
   }
 });
 
-// ============ LECTURES ============
+// lectures
 app.get('/api/lectures', async (req, res) => {
   try {
-    const snapshot = await db.collection('lectures').get();
-    const lectures = [];
-    snapshot.forEach(doc => lectures.push({ id: doc.id, ...doc.data() }));
-    console.log(`📖 Retrieved ${lectures.length} lectures`);
+    const lectures = await getFromFirestore('lectures');
     res.json({ lectures });
   } catch (error) {
-    console.error('Error fetching lectures:', error.message);
     res.status(500).json({ error: error.message });
   }
 });
 
 app.post('/api/lectures', async (req, res) => {
-  console.log('\n📖 ADDING NEW LECTURE');
-  console.log(`📚 Title: ${req.body.title}`);
-  console.log(`📅 Date: ${req.body.date}`);
-  console.log(`⏰ Time: ${req.body.time}`);
-  console.log(`📍 Venue: ${req.body.venue}`);
-  
   try {
     const { title, courseId, date, time, venue, lecturerId, totalStudents } = req.body;
+    const lectureId = `LEC${Date.now()}`;
     const lectureData = {
+      id: lectureId,
       title, courseId, date, time, venue,
       lecturerId: lecturerId || null,
       totalStudents: parseInt(totalStudents) || 0,
       attendance: 0,
       createdAt: new Date().toISOString()
     };
-    const docRef = await db.collection('lectures').add(lectureData);
-    console.log(`✅ Lecture added successfully! ID: ${docRef.id}`);
-    res.json({ success: true, message: 'Lecture added successfully', lecture: { id: docRef.id, ...lectureData } });
+    
+    await saveToFirestore('lectures', lectureId, lectureData);
+    console.log(`Lecture saved to Firestore: ${title}`);
+    res.json({ success: true, lecture: lectureData });
   } catch (error) {
-    console.error('❌ Error adding lecture:', error.message);
     res.status(500).json({ error: error.message });
   }
 });
 
-// ============ REPORTS ============
-app.get('/api/reports', async (req, res) => {
+app.put('/api/lectures/:id', async (req, res) => {
   try {
-    const snapshot = await db.collection('reports').get();
-    const reports = [];
-    snapshot.forEach(doc => reports.push({ id: doc.id, ...doc.data() }));
-    console.log(`📋 Retrieved ${reports.length} reports`);
-    res.json({ reports });
+    const lectureId = req.params.id;
+    const { attendance } = req.body;
+    
+    if (useRestApi) {
+      await axios.patch(
+        `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents/lectures/${lectureId}?key=${FIREBASE_WEB_API_KEY}`,
+        {
+          fields: {
+            attendance: { integerValue: attendance }
+          }
+        },
+        { timeout: 10000 }
+      );
+    } else if (adminSdkWorked && db) {
+      await db.collection('lectures').doc(lectureId).update({ attendance });
+    } else {
+      const lecture = localDB.lectures.find(l => l.id === lectureId);
+      if (lecture) lecture.attendance = attendance;
+    }
+    
+    console.log(`Lecture attendance updated in Firestore: ${lectureId}`);
+    res.json({ success: true });
   } catch (error) {
-    console.error('Error fetching reports:', error.message);
     res.status(500).json({ error: error.message });
   }
 });
 
-app.post('/api/reports/:id/feedback', async (req, res) => {
-  console.log('\n💬 ADDING FEEDBACK TO REPORT');
-  console.log(`📋 Report ID: ${req.params.id}`);
-  console.log(`💬 Feedback: ${req.body.feedback}`);
+// lecturer reports
+app.get('/api/lecturer-reports', async (req, res) => {
+  try {
+    const reports = await getFromFirestore('lecturerReports');
+    console.log(`Retrieved ${reports.length} lecturer reports from Firestore`);
+    res.json({ success: true, reports });
+  } catch (error) {
+    console.error('Error fetching lecturer reports:', error.message);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/lecturer-reports', async (req, res) => {
+  console.log('\nNEW LECTURER REPORT');
+  console.log(`Lecturer: ${req.body.lecturerName}`);
+  console.log(`Course: ${req.body.courseName} (${req.body.courseCode})`);
   
   try {
-    const { feedback } = req.body;
-    await db.collection('reports').doc(req.params.id).update({
-      feedback,
-      status: 'reviewed',
-      reviewedAt: new Date().toISOString()
+    const reportData = {
+      ...req.body,
+      status: 'pending',
+      feedback: null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    
+    const reportId = `RPT${Date.now()}`;
+    await saveToFirestore('lecturerReports', reportId, reportData);
+    console.log(`Report saved to Firestore! ID: ${reportId}`);
+    
+    res.json({ 
+      success: true, 
+      message: 'Report submitted successfully',
+      reportId: reportId 
     });
-    console.log(`✅ Feedback added successfully`);
+  } catch (error) {
+    console.error('Error submitting report:', error.message);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/lecturer-reports/:id/feedback', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { feedback, reviewerName } = req.body;
+    
+    if (useRestApi) {
+      await axios.patch(
+        `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents/lecturerReports/${id}?key=${FIREBASE_WEB_API_KEY}`,
+        {
+          fields: {
+            feedback: { stringValue: feedback },
+            status: { stringValue: 'reviewed' },
+            reviewedAt: { stringValue: new Date().toISOString() },
+            reviewedBy: { stringValue: reviewerName }
+          }
+        },
+        { timeout: 10000 }
+      );
+    } else if (adminSdkWorked && db) {
+      await db.collection('lecturerReports').doc(id).update({
+        feedback,
+        status: 'reviewed',
+        reviewedAt: new Date().toISOString(),
+        reviewedBy: reviewerName
+      });
+    } else {
+      const report = localDB.lecturerReports.find(r => r.id === id);
+      if (report) {
+        report.feedback = feedback;
+        report.status = 'reviewed';
+        report.reviewedAt = new Date().toISOString();
+        report.reviewedBy = reviewerName;
+      }
+    }
+    
+    console.log(`Feedback added to report in Firestore: ${id}`);
     res.json({ success: true, message: 'Feedback added successfully' });
   } catch (error) {
-    console.error('❌ Error adding feedback:', error.message);
+    console.error('Error adding feedback:', error.message);
     res.status(500).json({ error: error.message });
   }
 });
 
-// ============ RATINGS ============
+// ratings
 app.post('/api/rate-course', async (req, res) => {
-  console.log('\n⭐ COURSE RATING SUBMITTED');
-  console.log(`📖 Course ID: ${req.body.courseId}`);
-  console.log(`⭐ Rating: ${req.body.rating}/5`);
-  console.log(`💬 Review: ${req.body.review || 'No review'}`);
+  console.log('\nNEW COURSE RATING');
+  console.log(`Course: ${req.body.courseId}`);
+  console.log(`Rating: ${req.body.rating}/5`);
   
   try {
-    const { courseId, rating, review, raterName } = req.body;
-    await db.collection('courseRatings').add({
-      courseId, rating: parseInt(rating), review: review || '',
-      raterName: raterName || 'Anonymous', date: new Date().toISOString()
-    });
-    console.log(`✅ Rating submitted successfully`);
-    res.json({ success: true, message: 'Rating submitted successfully' });
+    const { courseId, rating, review, raterName, raterRole } = req.body;
+    const ratingId = `CR${Date.now()}`;
+    const ratingData = {
+      id: ratingId,
+      courseId,
+      rating: parseInt(rating),
+      review: review || '',
+      raterName: raterName || 'Anonymous',
+      raterRole: raterRole || 'student',
+      date: new Date().toISOString()
+    };
+    
+    await saveToFirestore('courseRatings', ratingId, ratingData);
+    console.log(`Course rating saved to Firestore`);
+    res.json({ success: true });
   } catch (error) {
-    console.error('❌ Error submitting rating:', error.message);
     res.status(500).json({ error: error.message });
   }
 });
 
 app.get('/api/course-ratings/:courseId', async (req, res) => {
   try {
-    const snapshot = await db.collection('courseRatings').where('courseId', '==', req.params.courseId).get();
-    const ratings = [];
-    snapshot.forEach(doc => ratings.push(doc.data()));
-    const avgRating = ratings.length > 0 ? (ratings.reduce((s, r) => s + r.rating, 0) / ratings.length).toFixed(1) : 0;
-    console.log(`⭐ Retrieved ${ratings.length} ratings for course ${req.params.courseId}, Avg: ${avgRating}`);
-    res.json({ ratings, avgRating: parseFloat(avgRating), count: ratings.length });
+    const ratings = await getFromFirestore('courseRatings');
+    const courseRatings = ratings.filter(r => r.courseId === req.params.courseId);
+    const avgRating = courseRatings.length > 0 
+      ? (courseRatings.reduce((s, r) => s + parseInt(r.rating), 0) / courseRatings.length).toFixed(1)
+      : 0;
+    res.json({ ratings: courseRatings, avgRating: parseFloat(avgRating) });
   } catch (error) {
-    console.error('Error fetching ratings:', error.message);
     res.status(500).json({ error: error.message });
   }
 });
 
 app.post('/api/rate-lecturer', async (req, res) => {
-  console.log('\n⭐ LECTURER RATING SUBMITTED');
-  console.log(`👨‍🏫 Lecturer ID: ${req.body.lecturerId}`);
-  console.log(`⭐ Rating: ${req.body.rating}/5`);
-  console.log(`💬 Review: ${req.body.review || 'No review'}`);
+  console.log('\nNEW LECTURER RATING');
+  console.log(`Lecturer: ${req.body.lecturerId}`);
+  console.log(`Rating: ${req.body.rating}/5`);
   
   try {
-    const { lecturerId, rating, review, raterName } = req.body;
-    await db.collection('lecturerRatings').add({
-      lecturerId, rating: parseInt(rating), review: review || '',
-      raterName: raterName || 'Anonymous', date: new Date().toISOString()
-    });
-    console.log(`✅ Rating submitted successfully`);
-    res.json({ success: true, message: 'Rating submitted successfully' });
+    const { lecturerId, rating, review, raterName, raterRole } = req.body;
+    const ratingId = `LR${Date.now()}`;
+    const ratingData = {
+      id: ratingId,
+      lecturerId,
+      rating: parseInt(rating),
+      review: review || '',
+      raterName: raterName || 'Anonymous',
+      raterRole: raterRole || 'student',
+      date: new Date().toISOString()
+    };
+    
+    await saveToFirestore('lecturerRatings', ratingId, ratingData);
+    console.log(`Lecturer rating saved to Firestore`);
+    res.json({ success: true });
   } catch (error) {
-    console.error('❌ Error submitting rating:', error.message);
     res.status(500).json({ error: error.message });
   }
 });
 
 app.get('/api/lecturer-ratings/:lecturerId', async (req, res) => {
   try {
-    const snapshot = await db.collection('lecturerRatings').where('lecturerId', '==', req.params.lecturerId).get();
-    const ratings = [];
-    snapshot.forEach(doc => ratings.push(doc.data()));
-    const avgRating = ratings.length > 0 ? (ratings.reduce((s, r) => s + r.rating, 0) / ratings.length).toFixed(1) : 0;
-    console.log(`⭐ Retrieved ${ratings.length} ratings for lecturer ${req.params.lecturerId}, Avg: ${avgRating}`);
-    res.json({ ratings, avgRating: parseFloat(avgRating), count: ratings.length });
+    const ratings = await getFromFirestore('lecturerRatings');
+    const lecturerRatings = ratings.filter(r => r.lecturerId === req.params.lecturerId);
+    const avgRating = lecturerRatings.length > 0 
+      ? (lecturerRatings.reduce((s, r) => s + parseInt(r.rating), 0) / lecturerRatings.length).toFixed(1)
+      : 0;
+    res.json({ ratings: lecturerRatings, avgRating: parseFloat(avgRating) });
   } catch (error) {
-    console.error('Error fetching ratings:', error.message);
     res.status(500).json({ error: error.message });
   }
 });
 
-// ============ STATUS ============
-app.get('/api/status', (req, res) => {
-  res.json({ 
-    firebaseConnected: true, 
-    message: 'Firebase is connected and ready',
-    timestamp: new Date().toISOString()
-  });
+app.post('/api/rate-lecture', async (req, res) => {
+  console.log('\nNEW LECTURE RATING');
+  console.log(`Lecture: ${req.body.lectureTitle}`);
+  console.log(`Rating: ${req.body.rating}/5`);
+  
+  try {
+    const { lectureId, lectureTitle, rating, review, raterName, raterRole } = req.body;
+    const ratingId = `LCR${Date.now()}`;
+    const ratingData = {
+      id: ratingId,
+      lectureId,
+      lectureTitle: lectureTitle || '',
+      rating: parseInt(rating),
+      review: review || '',
+      raterName: raterName || 'Anonymous',
+      raterRole: raterRole || 'student',
+      date: new Date().toISOString()
+    };
+    
+    await saveToFirestore('lectureRatings', ratingId, ratingData);
+    console.log(`Lecture rating saved to Firestore`);
+    res.json({ success: true, message: 'Rating submitted successfully' });
+  } catch (error) {
+    console.error('Error submitting rating:', error.message);
+    res.status(500).json({ error: error.message });
+  }
 });
 
-app.get('/', (req, res) => {
+app.get('/api/lecture-ratings/:lectureId', async (req, res) => {
+  try {
+    const ratings = await getFromFirestore('lectureRatings');
+    const lectureRatings = ratings.filter(r => r.lectureId === req.params.lectureId);
+    const avgRating = lectureRatings.length > 0 
+      ? (lectureRatings.reduce((s, r) => s + parseInt(r.rating), 0) / lectureRatings.length).toFixed(1)
+      : 0;
+    res.json({ ratings: lectureRatings, avgRating: parseFloat(avgRating), count: lectureRatings.length });
+  } catch (error) {
+    console.error('Error fetching lecture ratings:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// student attendance
+app.get('/api/student-attendance/:studentId', async (req, res) => {
+  try {
+    const { studentId } = req.params;
+    const attendance = await getFromFirestore('studentAttendance');
+    const studentAttendance = attendance.filter(a => a.studentId === studentId);
+    res.json({ attendance: studentAttendance });
+  } catch (error) {
+    console.error('Error fetching attendance:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/student-attendance/mark', async (req, res) => {
+  console.log('\nMARKING STUDENT ATTENDANCE');
+  console.log(`Student: ${req.body.studentName}`);
+  console.log(`Lecture: ${req.body.lectureTitle}`);
+  
+  try {
+    const { studentId, studentName, lectureId, lectureTitle, status, date } = req.body;
+    
+    if (!studentId || !lectureId || !status) {
+      return res.status(400).json({ error: 'Student ID, Lecture ID, and status are required' });
+    }
+    
+    const attendanceId = `ATT${Date.now()}`;
+    const attendanceData = {
+      id: attendanceId,
+      studentId,
+      studentName,
+      lectureId,
+      lectureTitle,
+      status,
+      date: date || new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    
+    await saveToFirestore('studentAttendance', attendanceId, attendanceData);
+    console.log(`Attendance saved to Firestore`);
+    
+    res.json({ success: true, message: 'Attendance marked successfully' });
+  } catch (error) {
+    console.error('Error marking attendance:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// reports
+app.get('/api/reports', async (req, res) => {
+  try {
+    const reports = await getFromFirestore('reports');
+    res.json({ reports });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/reports/:id/feedback', async (req, res) => {
+  try {
+    const { feedback } = req.body;
+    
+    if (useRestApi) {
+      await axios.patch(
+        `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents/reports/${req.params.id}?key=${FIREBASE_WEB_API_KEY}`,
+        {
+          fields: {
+            feedback: { stringValue: feedback },
+            status: { stringValue: 'reviewed' },
+            reviewedAt: { stringValue: new Date().toISOString() }
+          }
+        },
+        { timeout: 10000 }
+      );
+    } else if (adminSdkWorked && db) {
+      await db.collection('reports').doc(req.params.id).update({
+        feedback,
+        status: 'reviewed',
+        reviewedAt: new Date().toISOString()
+      });
+    } else {
+      const report = localDB.reports.find(r => r.id === req.params.id);
+      if (report) {
+        report.feedback = feedback;
+        report.status = 'reviewed';
+        report.reviewedAt = new Date().toISOString();
+      }
+    }
+    
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// status
+app.get('/api/status', (req, res) => {
   res.json({ 
-    message: 'University Monitoring System API', 
+    firebaseConnected: firebaseConnected,
+    mode: useRestApi ? 'REST_API' : (adminSdkWorked ? 'ADMIN_SDK' : 'LOCAL_STORAGE'),
     status: 'running',
-    firebaseConnected: true,
-    endpoints: {
-      auth: '/api/auth (register/login)',
-      courses: '/api/courses',
-      lecturers: '/api/lecturers',
-      lectures: '/api/lectures',
-      reports: '/api/reports',
-      ratings: '/api/rate-course, /api/rate-lecturer'
+    collections: {
+      users: true,
+      courses: true,
+      lecturers: true,
+      lectures: true,
+      lecturerReports: true,
+      courseRatings: true,
+      lecturerRatings: true,
+      lectureRatings: true,
+      studentAttendance: true
     }
   });
 });
 
-const PORT = 3000;
-app.listen(PORT, () => {
-  console.log('\n========================================');
-  console.log('✅ SERVER RUNNING');
-  console.log(`📍 http://localhost:${PORT}`);
-  console.log(`🔥 Firebase: CONNECTED`);
-  console.log('========================================');
-  console.log('\n📋 Ready to accept requests...\n');
+app.get('/api/test', (req, res) => {
+  res.json({ 
+    message: 'Server is running!',
+    firebaseConnected: firebaseConnected,
+    mode: useRestApi ? 'REST_API' : (adminSdkWorked ? 'ADMIN_SDK' : 'LOCAL_STORAGE')
+  });
 });
+
+app.get('/', (req, res) => {
+  res.json({
+    message: 'University Monitoring System API',
+    status: 'running',
+    mode: useRestApi ? 'REST_API' : (adminSdkWorked ? 'ADMIN SDK' : 'LOCAL_STORAGE')
+  });
+});
+
+const PORT = 3000;
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`\n========================================`);
+  console.log(`Server running on http://localhost:${PORT}`);
+  console.log(`Firebase: ${firebaseConnected ? 'CONNECTED' : 'FALLBACK'}`);
+  console.log(`Mode: ${useRestApi ? 'REST API' : (adminSdkWorked ? 'ADMIN SDK' : 'LOCAL STORAGE')}`);
+  console.log(`========================================\n`);
+});
+
+module.exports = { app, db, auth, firebaseConnected, useRestApi };

@@ -4,7 +4,7 @@ const router = express.Router();
 // Helper to get Firestore instance
 const getDb = (req) => req.app.locals.db;
 
-// ============ COURSE RATINGS ============
+
 
 // Submit course rating
 router.post('/courses', async (req, res) => {
@@ -27,7 +27,7 @@ router.post('/courses', async (req, res) => {
     
     if (db) {
       const docRef = await db.collection('courseRatings').add(newRating);
-      console.log(`✅ Course rating added to Firestore: ${docRef.id}`);
+      console.log(` Course rating added to Firestore: ${docRef.id}`);
       res.json({ success: true, rating: { id: docRef.id, ...newRating } });
     } else {
       res.json({ success: true, rating: { id: Date.now().toString(), ...newRating } });
@@ -38,7 +38,7 @@ router.post('/courses', async (req, res) => {
   }
 });
 
-// Get all course ratings
+// get all course ratings
 router.get('/courses', async (req, res) => {
   try {
     const db = getDb(req);
@@ -62,7 +62,7 @@ router.get('/courses', async (req, res) => {
   }
 });
 
-// Get course rating by course ID
+// get course rating by course ID
 router.get('/courses/:courseId', async (req, res) => {
   try {
     const db = getDb(req);
@@ -92,7 +92,7 @@ router.get('/courses/:courseId', async (req, res) => {
   }
 });
 
-// ============ LECTURER RATINGS ============
+// 
 
 // Submit lecturer rating
 router.post('/lecturers', async (req, res) => {
@@ -115,7 +115,7 @@ router.post('/lecturers', async (req, res) => {
     
     if (db) {
       const docRef = await db.collection('lecturerRatings').add(newRating);
-      console.log(`✅ Lecturer rating added to Firestore: ${docRef.id}`);
+      console.log(` Lecturer rating added to Firestore: ${docRef.id}`);
       res.json({ success: true, rating: { id: docRef.id, ...newRating } });
     } else {
       res.json({ success: true, rating: { id: Date.now().toString(), ...newRating } });
@@ -126,7 +126,7 @@ router.post('/lecturers', async (req, res) => {
   }
 });
 
-// Get all lecturer ratings
+// get all lecturer ratings
 router.get('/lecturers', async (req, res) => {
   try {
     const db = getDb(req);
@@ -150,7 +150,7 @@ router.get('/lecturers', async (req, res) => {
   }
 });
 
-// Get lecturer rating by lecturer ID
+// get lecturer rating by lecturer ID
 router.get('/lecturers/:lecturerId', async (req, res) => {
   try {
     const db = getDb(req);
@@ -180,9 +180,9 @@ router.get('/lecturers/:lecturerId', async (req, res) => {
   }
 });
 
-// ============ LECTURE RATINGS (for students) ============
+ 
 
-// Submit lecture rating
+// submit lecture rating
 router.post('/', async (req, res) => {
   try {
     const db = getDb(req);
@@ -215,7 +215,7 @@ router.post('/', async (req, res) => {
   }
 });
 
-// Get user's ratings
+// get user's ratings
 router.get('/user', async (req, res) => {
   try {
     const db = getDb(req);

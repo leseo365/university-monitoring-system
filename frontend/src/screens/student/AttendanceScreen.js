@@ -125,8 +125,8 @@ const AttendanceScreen = () => {
           />
           <Text style={styles.warningText}>
             {attendanceSummary.percentage < 75 ? 
-              '⚠️ Warning: Your attendance is below 75%!' : 
-              '✅ Good job! Keep up the attendance!'}
+              ' Warning: Your attendance is below 75%!' : 
+              ' Good job! Keep up the attendance!'}
           </Text>
         </Card.Content>
       </Card>
@@ -139,9 +139,9 @@ const AttendanceScreen = () => {
             <Card key={lecture.id} style={styles.lectureCard}>
               <Card.Content>
                 <Title>{lecture.title}</Title>
-                <Paragraph>📅 Date: {lecture.date}</Paragraph>
-                <Paragraph>⏰ Time: {lecture.time}</Paragraph>
-                <Paragraph>📍 Venue: {lecture.venue || 'TBA'}</Paragraph>
+                <Paragraph> Date: {lecture.date}</Paragraph>
+                <Paragraph> Time: {lecture.time}</Paragraph>
+                <Paragraph> Venue: {lecture.venue || 'TBA'}</Paragraph>
                 
                 {!isMarked ? (
                   <View style={styles.attendanceButtons}>

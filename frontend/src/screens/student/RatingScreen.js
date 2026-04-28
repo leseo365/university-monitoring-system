@@ -153,7 +153,7 @@ const RatingScreen = () => {
               <Card key={lecture.id} style={styles.ratedCard}>
                 <Card.Content>
                   <Title>{lecture.title}</Title>
-                  <Paragraph>📅 {lecture.date}</Paragraph>
+                  <Paragraph> {lecture.date}</Paragraph>
                   <View style={styles.ratedContainer}>
                     <Text style={styles.ratedText}>✓ Already Rated</Text>
                   </View>
@@ -166,8 +166,8 @@ const RatingScreen = () => {
             <Card key={lecture.id} style={styles.lectureCard}>
               <Card.Content>
                 <Title>{lecture.title}</Title>
-                <Paragraph>📅 Date: {lecture.date}</Paragraph>
-                <Paragraph>⏰ Time: {lecture.time}</Paragraph>
+                <Paragraph> Date: {lecture.date}</Paragraph>
+                <Paragraph> Time: {lecture.time}</Paragraph>
                 
                 <Text style={styles.ratingLabel}>Your Rating:</Text>
                 {renderStars(lecture.id)}

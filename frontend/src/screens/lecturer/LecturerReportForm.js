@@ -16,9 +16,13 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 
-const API_URL = 'http://localhost:3000/api';
+const API_URL = Platform.select({
+  android: 'http://10.0.2.2:3000/api',
+  ios: 'http://localhost:3000/api',
+  default: 'http://localhost:3000/api'
+});
 
-const LecturerReportForm = ({ navigation }) => {
+const LecturerReportForm = ({ onClose, onSubmitSuccess }) => {
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [lecturerName, setLecturerName] = useState('');
@@ -59,27 +63,9 @@ const LecturerReportForm = ({ navigation }) => {
   
   // Updated venues list
   const venues = [
-    'MM1',
-    'MM2',
-    'MM3',
-    'MM5',
-    'MM6',
-    'MM7',
-    'Room1',
-    'Room2',
-    'Room3',
-    'Room4',
-    'Room5',
-    'Room6',
-    'Room7',
-    'Hall1',
-    'Hall2',
-    'Hall3',
-    'Hall4',
-    'Hall5',
-    'Hall6',
-    'Hall7',
-    'Hall8'
+    'MM1', 'MM2', 'MM3', 'MM5', 'MM6', 'MM7',
+    'Room1', 'Room2', 'Room3', 'Room4', 'Room5', 'Room6', 'Room7',
+    'Hall1', 'Hall2', 'Hall3', 'Hall4', 'Hall5', 'Hall6', 'Hall7', 'Hall8'
   ];
 
   // Generate dates for the next 90 days
@@ -108,10 +94,14 @@ const LecturerReportForm = ({ navigation }) => {
   }, []);
 
   const loadLecturerData = async () => {
-    const userData = await AsyncStorage.getItem('userData');
-    if (userData) {
-      const user = JSON.parse(userData);
-      setLecturerName(user.name || '');
+    try {
+      const userData = await AsyncStorage.getItem('userData');
+      if (userData) {
+        const user = JSON.parse(userData);
+        setLecturerName(user.name || '');
+      }
+    } catch (error) {
+      console.error('Error loading lecturer data:', error);
     }
   };
 
@@ -173,6 +163,9 @@ const LecturerReportForm = ({ navigation }) => {
     setSubmitting(true);
     try {
       const token = await AsyncStorage.getItem('userToken');
+      const userData = await AsyncStorage.getItem('userData');
+      const user = userData ? JSON.parse(userData) : {};
+      
       const reportData = {
         facultyName,
         className,
@@ -180,7 +173,7 @@ const LecturerReportForm = ({ navigation }) => {
         dateOfLecture,
         courseName,
         courseCode,
-        lecturerName,
+        lecturerName: user.name || lecturerName,
         actualStudentsPresent: parseInt(actualStudentsPresent),
         totalRegisteredStudents: parseInt(totalRegisteredStudents) || 0,
         venue,
@@ -197,18 +190,18 @@ const LecturerReportForm = ({ navigation }) => {
       });
 
       if (response.data.success) {
-        // First close the modal
         setShowPreview(false);
         
         Alert.alert(
           'Success',
-          'Report submitted successfully!',
+          'Report submitted successfully to PRL!',
           [
             {
               text: 'OK',
               onPress: () => {
                 resetForm();
-                navigation.goBack();
+                if (onSubmitSuccess) onSubmitSuccess();
+                if (onClose) onClose();
               }
             }
           ]
@@ -298,7 +291,7 @@ const LecturerReportForm = ({ navigation }) => {
     >
       <View style={styles.modalOverlay}>
         <View style={styles.previewModal}>
-          <Text style={styles.previewTitle}>📋 Report Summary</Text>
+          <Text style={styles.previewTitle}> Report Summary</Text>
           <ScrollView style={styles.previewContent}>
             <View style={styles.previewSection}>
               <Text style={styles.previewLabel}>Faculty:</Text>
@@ -373,7 +366,7 @@ const LecturerReportForm = ({ navigation }) => {
               {submitting ? (
                 <ActivityIndicator size="small" color="#fff" />
               ) : (
-                <Text style={styles.submitPreviewText}>Submit Report</Text>
+                <Text style={styles.submitPreviewText}>Submit Report to PRL</Text>
               )}
             </TouchableOpacity>
           </View>
@@ -393,8 +386,16 @@ const LecturerReportForm = ({ navigation }) => {
         keyboardShouldPersistTaps="handled"
       >
         <View style={styles.header}>
-          <Text style={styles.headerTitle}>📝 Lecturer Report Form</Text>
-          <Text style={styles.headerSubtitle}>Weekly Lecture Reporting</Text>
+          <View style={styles.headerRow}>
+            <TouchableOpacity onPress={onClose} style={styles.closeHeaderButton}>
+              <Text style={styles.closeHeaderText}>✕ Close</Text>
+            </TouchableOpacity>
+            <View style={styles.headerTextContainer}>
+              <Text style={styles.headerTitle}> Lecturer Report Form</Text>
+              <Text style={styles.headerSubtitle}>Weekly Lecture Reporting</Text>
+            </View>
+            <View style={styles.placeholder} />
+          </View>
         </View>
 
         <View style={styles.formContainer}>
@@ -417,7 +418,7 @@ const LecturerReportForm = ({ navigation }) => {
             <Text style={styles.label}>Class Name (Required)</Text>
             <TextInput
               style={styles.input}
-              placeholder="e.g., BSCS Year 2, BIT Year 3"
+              placeholder="e.g., BSCSMY2S3"
               value={className}
               onChangeText={setClassName}
             />
@@ -447,7 +448,7 @@ const LecturerReportForm = ({ navigation }) => {
               <Text style={[styles.dropdownText, !dateOfLecture && styles.placeholderText]}>
                 {dateOfLecture || 'Select Date'}
               </Text>
-              <Text style={styles.dropdownArrow}>📅</Text>
+              <Text style={styles.dropdownArrow}></Text>
             </TouchableOpacity>
           </View>
 
@@ -578,12 +579,12 @@ const LecturerReportForm = ({ navigation }) => {
             />
           </View>
 
-          {/* Preview Button - Styled nicely */}
+          {/* Preview Button */}
           <TouchableOpacity
             style={styles.previewButton}
             onPress={handlePreview}
           >
-            <Text style={styles.previewButtonText}>📋 Preview Report Summary</Text>
+            <Text style={styles.previewButtonText}> Preview Report Summary</Text>
           </TouchableOpacity>
 
           {/* Clear Form Button */}
@@ -618,21 +619,43 @@ const styles = StyleSheet.create({
   },
   header: {
     backgroundColor: '#6200ee',
-    padding: 25,
+    padding: 20,
     paddingTop: 50,
     paddingBottom: 20,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  closeHeaderButton: {
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    paddingHorizontal: 15,
+    paddingVertical: 8,
+    borderRadius: 20,
+  },
+  closeHeaderText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  headerTextContainer: {
+    flex: 1,
     alignItems: 'center',
   },
   headerTitle: {
-    fontSize: 24,
+    fontSize: 20,
     fontWeight: 'bold',
     color: '#fff',
   },
   headerSubtitle: {
-    fontSize: 14,
+    fontSize: 12,
     color: '#fff',
     opacity: 0.9,
-    marginTop: 5,
+    marginTop: 2,
+  },
+  placeholder: {
+    width: 70,
   },
   formContainer: {
     padding: 20,

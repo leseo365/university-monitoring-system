@@ -12,7 +12,7 @@ router.post('/lecturer/reports', async (req, res) => {
   const reportData = req.body;
   const db = getDb(req);
   
-  console.log('📝 New lecturer report submission:', reportData);
+  console.log(' New lecturer report submission:', reportData);
   
   const newReport = {
     id: Date.now().toString(),
@@ -26,7 +26,7 @@ router.post('/lecturer/reports', async (req, res) => {
   try {
     if (db) {
       await db.collection('lecturerReports').add(newReport);
-      console.log('✅ Report stored in Firestore');
+      console.log(' Report stored in Firestore');
     }
     
     lecturerReports.unshift(newReport);

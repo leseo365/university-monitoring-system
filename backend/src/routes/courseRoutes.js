@@ -1,10 +1,10 @@
 ﻿const express = require('express');
 const router = express.Router();
 
-// Helper to get Firestore instance
+// helper to get Firestore instance
 const getDb = (req) => req.app.locals.db;
 
-// Get all courses
+// get all courses
 router.get('/', async (req, res) => {
   try {
     const db = getDb(req);
@@ -19,7 +19,7 @@ router.get('/', async (req, res) => {
       courses.push({ id: doc.id, ...doc.data() });
     });
     
-    console.log(`✅ Retrieved ${courses.length} courses from Firestore`);
+    console.log(` Retrieved ${courses.length} courses from Firestore`);
     res.json(courses);
   } catch (error) {
     console.error('Error in GET /courses:', error);
@@ -27,7 +27,7 @@ router.get('/', async (req, res) => {
   }
 });
 
-// Get course by ID
+// get course by ID
 router.get('/:id', async (req, res) => {
   try {
     const db = getDb(req);
@@ -48,7 +48,7 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// Create new course
+// create new course
 router.post('/', async (req, res) => {
   try {
     const db = getDb(req);
@@ -76,7 +76,7 @@ router.post('/', async (req, res) => {
     };
     
     const docRef = await db.collection('courses').add(newCourse);
-    console.log(`✅ Course created in Firestore: ${docRef.id}`);
+    console.log(` Course created in Firestore: ${docRef.id}`);
     
     res.json({ success: true, course: { id: docRef.id, ...newCourse } });
   } catch (error) {
@@ -85,7 +85,7 @@ router.post('/', async (req, res) => {
   }
 });
 
-// Update course
+// update course
 router.put('/:id', async (req, res) => {
   try {
     const db = getDb(req);
@@ -108,7 +108,7 @@ router.put('/:id', async (req, res) => {
       updatedAt: new Date().toISOString()
     });
     
-    console.log(`✅ Course ${id} updated in Firestore`);
+    console.log(` Course ${id} updated in Firestore`);
     res.json({ success: true, message: 'Course updated successfully' });
   } catch (error) {
     console.error('Error in PUT /courses/:id:', error);
@@ -116,7 +116,7 @@ router.put('/:id', async (req, res) => {
   }
 });
 
-// Assign lecturer to course
+// assign lecturer to course
 router.put('/:courseId/assign', async (req, res) => {
   try {
     const db = getDb(req);
@@ -145,7 +145,7 @@ router.put('/:courseId/assign', async (req, res) => {
       updatedAt: new Date().toISOString()
     });
     
-    console.log(`✅ Lecturer assigned to course ${courseId} in Firestore`);
+    console.log(` Lecturer assigned to course ${courseId} in Firestore`);
     res.json({ success: true, message: 'Lecturer assigned successfully' });
   } catch (error) {
     console.error('Error in PUT /courses/:courseId/assign:', error);
@@ -153,7 +153,7 @@ router.put('/:courseId/assign', async (req, res) => {
   }
 });
 
-// Delete course
+// delete course
 router.delete('/:id', async (req, res) => {
   try {
     const db = getDb(req);
@@ -171,7 +171,7 @@ router.delete('/:id', async (req, res) => {
     }
     
     await docRef.delete();
-    console.log(`✅ Course ${id} deleted from Firestore`);
+    console.log(` Course ${id} deleted from Firestore`);
     res.json({ success: true, message: 'Course deleted successfully' });
   } catch (error) {
     console.error('Error in DELETE /courses/:id:', error);
@@ -179,7 +179,7 @@ router.delete('/:id', async (req, res) => {
   }
 });
 
-// Get courses by stream
+// get courses by stream
 router.get('/stream/:stream', async (req, res) => {
   try {
     const db = getDb(req);
@@ -202,7 +202,7 @@ router.get('/stream/:stream', async (req, res) => {
   }
 });
 
-// Get courses by lecturer
+// get courses by lecturer
 router.get('/lecturer/:lecturerId', async (req, res) => {
   try {
     const db = getDb(req);

@@ -1,21 +1,35 @@
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Platform } from 'react-native';
 
-// API Configuration
-const API_URL = 'http://localhost:3000/api';
+// Dynamically set API URL based on platform
+const getApiUrl = () => {
+  if (Platform.OS === 'android') {
+    return 'http://10.0.2.2:3000/api';  // Android emulator
+  } else if (Platform.OS === 'ios') {
+    return 'http://localhost:3000/api';  // iOS simulator
+  } else {
+    return 'http://localhost:3000/api';  // Web
+  }
+};
 
-// Create axios instance
+const API_URL = getApiUrl();
+
+console.log('API URL:', API_URL);
+
 const api = axios.create({
   baseURL: API_URL,
-  timeout: 10000,
+  timeout: 60000, // Increased timeout
   headers: {
     'Content-Type': 'application/json',
+    'Accept': 'application/json',
   },
 });
 
 // Request interceptor to add token
 api.interceptors.request.use(
   async (config) => {
+    console.log(`API Request: ${config.method?.toUpperCase()} ${config.url}`);
     const token = await AsyncStorage.getItem('userToken');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
@@ -23,23 +37,313 @@ api.interceptors.request.use(
     return config;
   },
   (error) => {
+    console.error('Request interceptor error:', error);
     return Promise.reject(error);
   }
 );
 
 // Response interceptor to handle errors
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    console.log(`API Response: ${response.config.url} - Status: ${response.status}`);
+    return response;
+  },
   async (error) => {
+    console.error('API Error:', error.code, error.message);
+    
+    if (error.code === 'ECONNABORTED') {
+      console.error('Connection timeout - server not responding');
+      return Promise.reject({ error: 'Connection timeout. Please check if backend server is running.' });
+    }
+    
+    if (error.code === 'ERR_NETWORK') {
+      console.error('Network error - cannot reach server');
+      return Promise.reject({ error: 'Network error. Cannot connect to server. Make sure backend is running on port 3000.' });
+    }
+    
     if (error.response?.status === 401) {
       // Token expired or invalid
       await AsyncStorage.removeItem('userToken');
       await AsyncStorage.removeItem('userRole');
       await AsyncStorage.removeItem('userData');
-      // Navigate to login screen (handled in App.js)
     }
-    return Promise.reject(error);
+    
+    if (error.response?.data) {
+      return Promise.reject(error.response.data);
+    }
+    
+    return Promise.reject({ error: error.message || 'Unknown error occurred' });
   }
 );
+
+// ============ AUTH SERVICES ============
+export const authService = {
+  register: async (userData) => {
+    try {
+      const response = await api.post('/auth/register', userData);
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
+  },
+  
+  login: async (email, password) => {
+    try {
+      const response = await api.post('/auth/login', { email, password });
+      if (response.data.success) {
+        // Store user data
+        await AsyncStorage.setItem('userToken', response.data.token || 'temp-token');
+        await AsyncStorage.setItem('userRole', response.data.user.role);
+        await AsyncStorage.setItem('userData', JSON.stringify(response.data.user));
+        await AsyncStorage.setItem('userEmail', response.data.user.email);
+        await AsyncStorage.setItem('userName', response.data.user.name);
+        await AsyncStorage.setItem('userUid', response.data.user.uid);
+      }
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
+  },
+  
+  logout: async () => {
+    await AsyncStorage.multiRemove(['userToken', 'userRole', 'userData', 'userEmail', 'userName', 'userUid']);
+  },
+  
+  getCurrentUser: async () => {
+    const userData = await AsyncStorage.getItem('userData');
+    return userData ? JSON.parse(userData) : null;
+  },
+  
+  getUserRole: async () => {
+    return await AsyncStorage.getItem('userRole');
+  }
+};
+
+// ============ COURSE SERVICES ============
+export const courseService = {
+  getAll: async () => {
+    try {
+      const response = await api.get('/courses');
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
+  },
+  
+  create: async (courseData) => {
+    try {
+      const response = await api.post('/courses', courseData);
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
+  },
+  
+  delete: async (courseId) => {
+    try {
+      const response = await api.delete(`/courses/${courseId}`);
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
+  },
+  
+  assignLecturer: async (courseId, lecturerId) => {
+    try {
+      const response = await api.put(`/courses/${courseId}/assign`, { lecturerId });
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
+  },
+  
+  unassignLecturer: async (courseId) => {
+    try {
+      const response = await api.put(`/courses/${courseId}/unassign`);
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
+  }
+};
+
+// ============ LECTURER SERVICES ============
+export const lecturerService = {
+  getAll: async () => {
+    try {
+      const response = await api.get('/lecturers');
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
+  },
+  
+  create: async (lecturerData) => {
+    try {
+      const response = await api.post('/lecturers', lecturerData);
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
+  }
+};
+
+// ============ LECTURE SERVICES ============
+export const lectureService = {
+  getAll: async () => {
+    try {
+      const response = await api.get('/lectures');
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
+  },
+  
+  create: async (lectureData) => {
+    try {
+      const response = await api.post('/lectures', lectureData);
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
+  }
+};
+
+// ============ REPORT SERVICES ============
+export const reportService = {
+  getAll: async () => {
+    try {
+      const response = await api.get('/reports');
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
+  },
+  
+  getLecturerReports: async () => {
+    try {
+      const response = await api.get('/lecturer-reports');
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
+  },
+  
+  addFeedback: async (reportId, feedback) => {
+    try {
+      const response = await api.post(`/lecturer-reports/${reportId}/feedback`, { feedback });
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
+  }
+};
+
+// ============ RATING SERVICES ============
+export const ratingService = {
+  rateCourse: async (courseId, rating, review, raterName, raterRole) => {
+    try {
+      const response = await api.post('/rate-course', { courseId, rating, review, raterName, raterRole });
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
+  },
+  
+  getCourseRatings: async (courseId) => {
+    try {
+      const response = await api.get(`/course-ratings/${courseId}`);
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
+  },
+  
+  rateLecturer: async (lecturerId, rating, review, raterName, raterRole) => {
+    try {
+      const response = await api.post('/rate-lecturer', { lecturerId, rating, review, raterName, raterRole });
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
+  },
+  
+  getLecturerRatings: async (lecturerId) => {
+    try {
+      const response = await api.get(`/lecturer-ratings/${lecturerId}`);
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
+  },
+  
+  rateLecture: async (lectureId, lectureTitle, rating, review, raterName, raterRole) => {
+    try {
+      const response = await api.post('/rate-lecture', { lectureId, lectureTitle, rating, review, raterName, raterRole });
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
+  },
+  
+  getLectureRatings: async (lectureId) => {
+    try {
+      const response = await api.get(`/lecture-ratings/${lectureId}`);
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
+  }
+};
+
+// ============ ATTENDANCE SERVICES ============
+export const attendanceService = {
+  getStudentAttendance: async (studentId) => {
+    try {
+      const response = await api.get(`/student-attendance/${studentId}`);
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
+  },
+  
+  markAttendance: async (studentId, studentName, lectureId, lectureTitle, status) => {
+    try {
+      const response = await api.post('/student-attendance/mark', {
+        studentId,
+        studentName,
+        lectureId,
+        lectureTitle,
+        status,
+        date: new Date().toISOString()
+      });
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
+  }
+};
+
+// ============ STATUS SERVICES ============
+export const statusService = {
+  checkServer: async () => {
+    try {
+      const response = await api.get('/status');
+      return response.data;
+    } catch (error) {
+      console.error('Server check failed:', error);
+      return { firebaseConnected: false, error: error.message };
+    }
+  },
+  
+  testConnection: async () => {
+    try {
+      const response = await api.get('/test');
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
+  }
+};
 
 export default api;

@@ -31,6 +31,7 @@ const PLDashboard = ({ navigation }) => {
   const [lecturers, setLecturers] = useState([]);
   const [lectures, setLectures] = useState([]);
   const [reports, setReports] = useState([]);
+  const [lecturerReports, setLecturerReports] = useState([]);
   const [refreshing, setRefreshing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [assigning, setAssigning] = useState(false);
@@ -127,14 +128,20 @@ const PLDashboard = ({ navigation }) => {
 
   const loadAllData = async () => {
     setLoading(true);
-    await Promise.all([
-      loadCourses(),
-      loadLecturers(),
-      loadLectures(),
-      loadReports(),
-      loadRatings()
-    ]);
-    setLoading(false);
+    try {
+      await Promise.all([
+        loadCourses(),
+        loadLecturers(),
+        loadLectures(),
+        loadReports(),
+        loadLecturerReports()
+      ]);
+      await loadRatings();
+    } catch (error) {
+      console.error('Error loading all data:', error);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const loadCourses = async () => {
@@ -143,7 +150,7 @@ const PLDashboard = ({ navigation }) => {
       setCourses(response.data.courses || []);
     } catch (error) {
       console.error('Error loading courses:', error);
-      Alert.alert('Error', 'Failed to load courses');
+      setCourses([]);
     }
   };
 
@@ -153,6 +160,7 @@ const PLDashboard = ({ navigation }) => {
       setLecturers(response.data.lecturers || []);
     } catch (error) {
       console.error('Error loading lecturers:', error);
+      setLecturers([]);
     }
   };
 
@@ -162,6 +170,7 @@ const PLDashboard = ({ navigation }) => {
       setLectures(response.data.lectures || []);
     } catch (error) {
       console.error('Error loading lectures:', error);
+      setLectures([]);
     }
   };
 
@@ -171,26 +180,43 @@ const PLDashboard = ({ navigation }) => {
       setReports(response.data.reports || []);
     } catch (error) {
       console.error('Error loading reports:', error);
+      setReports([]);
+    }
+  };
+
+  const loadLecturerReports = async () => {
+    try {
+      const response = await axios.get(`${API_URL}/lecturer-reports`);
+      setLecturerReports(response.data.reports || []);
+    } catch (error) {
+      console.error('Error loading lecturer reports:', error);
+      setLecturerReports([]);
     }
   };
 
   const loadRatings = async () => {
     try {
+      const courseRatingsMap = {};
       for (const course of courses) {
-        const response = await axios.get(`${API_URL}/course-ratings/${course.id}`);
-        setCourseRatings(prev => ({
-          ...prev,
-          [course.id]: response.data
-        }));
+        try {
+          const response = await axios.get(`${API_URL}/course-ratings/${course.id}`);
+          courseRatingsMap[course.id] = response.data;
+        } catch (err) {
+          courseRatingsMap[course.id] = { avgRating: 0, ratings: [] };
+        }
       }
+      setCourseRatings(courseRatingsMap);
       
+      const lecturerRatingsMap = {};
       for (const lecturer of lecturers) {
-        const response = await axios.get(`${API_URL}/lecturer-ratings/${lecturer.id}`);
-        setLecturerRatings(prev => ({
-          ...prev,
-          [lecturer.id]: response.data
-        }));
+        try {
+          const response = await axios.get(`${API_URL}/lecturer-ratings/${lecturer.id}`);
+          lecturerRatingsMap[lecturer.id] = response.data;
+        } catch (err) {
+          lecturerRatingsMap[lecturer.id] = { avgRating: 0, ratings: [] };
+        }
       }
+      setLecturerRatings(lecturerRatingsMap);
     } catch (error) {
       console.error('Error loading ratings:', error);
     }
@@ -266,11 +292,18 @@ const PLDashboard = ({ navigation }) => {
           style: 'destructive',
           onPress: async () => {
             try {
-              await axios.delete(`${API_URL}/courses/${courseId}`);
-              await loadCourses();
-              Alert.alert('Success', 'Course deleted successfully');
+              console.log('Deleting course:', courseId);
+              const response = await axios.delete(`${API_URL}/courses/${courseId}`);
+              console.log('Delete response:', response.data);
+              if (response.data.success) {
+                await loadCourses();
+                Alert.alert('Success', 'Course deleted successfully');
+              } else {
+                Alert.alert('Error', response.data.error || 'Failed to delete course');
+              }
             } catch (error) {
-              Alert.alert('Error', 'Failed to delete course');
+              console.error('Delete error:', error.response?.data || error.message);
+              Alert.alert('Error', error.response?.data?.error || 'Failed to delete course');
             }
           }
         }
@@ -362,11 +395,18 @@ const PLDashboard = ({ navigation }) => {
           style: 'destructive',
           onPress: async () => {
             try {
-              await axios.put(`${API_URL}/courses/${courseId}/unassign`);
-              await loadCourses();
-              Alert.alert('Success', 'Lecturer unassigned successfully');
+              console.log('Unassigning lecturer from course:', courseId);
+              const response = await axios.put(`${API_URL}/courses/${courseId}/unassign`);
+              console.log('Unassign response:', response.data);
+              if (response.data.success) {
+                await loadCourses();
+                Alert.alert('Success', 'Lecturer unassigned successfully');
+              } else {
+                Alert.alert('Error', response.data.error || 'Failed to unassign lecturer');
+              }
             } catch (error) {
-              Alert.alert('Error', 'Failed to unassign lecturer');
+              console.error('Unassign error:', error.response?.data || error.message);
+              Alert.alert('Error', error.response?.data?.error || 'Failed to unassign lecturer');
             }
           }
         }
@@ -382,11 +422,11 @@ const PLDashboard = ({ navigation }) => {
 
     setSubmittingFeedback(true);
     try {
-      await axios.post(`${API_URL}/reports/${selectedReport.id}/feedback`, {
+      await axios.post(`${API_URL}/lecturer-reports/${selectedReport.id}/feedback`, {
         feedback: feedbackText,
         reviewerName: userName
       });
-      await loadReports();
+      await loadLecturerReports();
       Alert.alert('Success', 'Feedback submitted successfully');
       setFeedbackModalVisible(false);
       setFeedbackText('');
@@ -466,9 +506,24 @@ const PLDashboard = ({ navigation }) => {
     );
   };
 
-  const getRatingStars = (rating) => {
+  const renderRatingStarsDisplay = (rating) => {
     const numRating = parseFloat(rating) || 0;
-    return '★'.repeat(Math.round(numRating)) + '☆'.repeat(5 - Math.round(numRating));
+    const fullStars = Math.floor(numRating);
+    const hasHalfStar = numRating % 1 >= 0.5;
+    const emptyStars = 5 - fullStars - (hasHalfStar ? 1 : 0);
+    
+    return (
+      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+        {[...Array(fullStars)].map((_, i) => (
+          <Text key={`full-${i}`} style={{ color: '#FFD700', fontSize: 14, marginRight: 2 }}>★</Text>
+        ))}
+        {hasHalfStar && <Text style={{ color: '#FFD700', fontSize: 14, marginRight: 2 }}>½</Text>}
+        {[...Array(emptyStars)].map((_, i) => (
+          <Text key={`empty-${i}`} style={{ color: '#ccc', fontSize: 14, marginRight: 2 }}>★</Text>
+        ))}
+        <Text style={{ fontSize: 12, color: '#666', marginLeft: 5 }}>({numRating.toFixed(1)})</Text>
+      </View>
+    );
   };
 
   const getGreeting = () => {
@@ -481,6 +536,8 @@ const PLDashboard = ({ navigation }) => {
   const filteredCourses = getFilteredCourses();
   const unassignedCourses = filteredCourses.filter(c => !c.lecturerId);
   const assignedCourses = filteredCourses.filter(c => c.lecturerId);
+  
+  const allReports = [...reports, ...lecturerReports];
 
   if (loading) {
     return (
@@ -505,10 +562,10 @@ const PLDashboard = ({ navigation }) => {
               <Text style={styles.userRole}>Program Leader (PL)</Text>
             </View>
             <TouchableOpacity onPress={handleLogout} style={styles.logoutButton}>
-              <Text style={styles.logoutText}>🚪 Logout</Text>
+              <Text style={styles.logoutText}>Logout</Text>
             </TouchableOpacity>
           </View>
-          <Text style={styles.subtitle}>Manage Courses, Assign Lecturers & Monitor Progress</Text>
+          <Text style={styles.subtitle}>Manage Courses, Assign Lecturers and Monitor Progress</Text>
         </View>
 
         <View style={styles.statsContainer}>
@@ -546,10 +603,10 @@ const PLDashboard = ({ navigation }) => {
               onPress={() => setActiveTab(tab)}
             >
               <Text style={[styles.tabText, activeTab === tab && styles.activeTabText]}>
-                {tab === 'courses' && '📚 Courses'}
-                {tab === 'lectures' && '📖 Lectures'}
-                {tab === 'reports' && '📋 Reports'}
-                {tab === 'rating' && '⭐ Rating'}
+                {tab === 'courses' && 'Courses'}
+                {tab === 'lectures' && 'Lectures'}
+                {tab === 'reports' && 'Reports'}
+                {tab === 'rating' && 'Rating'}
               </Text>
             </TouchableOpacity>
           ))}
@@ -576,20 +633,24 @@ const PLDashboard = ({ navigation }) => {
 
             <View style={styles.actionButtons}>
               <TouchableOpacity style={[styles.actionButton, { backgroundColor: '#4CAF50' }]} onPress={() => setAddCourseModalVisible(true)}>
-                <Text style={styles.actionButtonText}>➕ Add New Course</Text>
+                <Text style={styles.actionButtonText}>Add New Course</Text>
               </TouchableOpacity>
               <TouchableOpacity style={[styles.actionButton, { backgroundColor: '#2196F3', marginTop: 10 }]} onPress={() => setAddLecturerModalVisible(true)}>
-                <Text style={styles.actionButtonText}>👨‍🏫 Add New Lecturer</Text>
+                <Text style={styles.actionButtonText}>Add New Lecturer</Text>
               </TouchableOpacity>
               <TouchableOpacity style={[styles.actionButton, { backgroundColor: '#FF9800', marginTop: 10 }]} onPress={openAssignModal}>
-                <Text style={styles.actionButtonText}>📋 Assign Lecturer to Course</Text>
+                <Text style={styles.actionButtonText}>Assign Lecturer to Course</Text>
               </TouchableOpacity>
             </View>
 
             <View style={styles.section}>
-              <Title style={styles.sectionTitle}>📋 Unassigned Courses</Title>
+              <Title style={styles.sectionTitle}>Unassigned Courses</Title>
               {unassignedCourses.length === 0 ? (
-                <Card style={styles.emptyCard}><Card.Content><Paragraph style={styles.emptyText}>No unassigned courses</Paragraph></Card.Content></Card>
+                <Card style={styles.emptyCard}>
+                  <Card.Content>
+                    <Paragraph style={styles.emptyText}>No unassigned courses</Paragraph>
+                  </Card.Content>
+                </Card>
               ) : (
                 unassignedCourses.map(course => (
                   <Card key={course.id} style={styles.courseCard}>
@@ -597,13 +658,13 @@ const PLDashboard = ({ navigation }) => {
                       <View style={styles.cardHeader}>
                         <Title>{course.name}</Title>
                         <TouchableOpacity onPress={() => deleteCourse(course.id, course.name)}>
-                          <Text style={styles.deleteText}>🗑️</Text>
+                          <Text style={styles.deleteText}>Delete</Text>
                         </TouchableOpacity>
                       </View>
-                      <Paragraph>📚 Code: {course.code}</Paragraph>
-                      <Paragraph>🎯 Stream: {course.stream}</Paragraph>
-                      <Paragraph>📖 Credits: {course.credits}</Paragraph>
-                      <Paragraph>📅 Semester: {course.semester}</Paragraph>
+                      <Paragraph>Code: {course.code}</Paragraph>
+                      <Paragraph>Stream: {course.stream}</Paragraph>
+                      <Paragraph>Credits: {course.credits}</Paragraph>
+                      <Paragraph>Semester: {course.semester}</Paragraph>
                     </Card.Content>
                   </Card>
                 ))
@@ -611,25 +672,33 @@ const PLDashboard = ({ navigation }) => {
             </View>
 
             <View style={styles.section}>
-              <Title style={styles.sectionTitle}>✅ Assigned Courses</Title>
+              <Title style={styles.sectionTitle}>Assigned Courses</Title>
               {assignedCourses.length === 0 ? (
-                <Card style={styles.emptyCard}><Card.Content><Paragraph style={styles.emptyText}>No assigned courses yet</Paragraph></Card.Content></Card>
+                <Card style={styles.emptyCard}>
+                  <Card.Content>
+                    <Paragraph style={styles.emptyText}>No assigned courses yet</Paragraph>
+                  </Card.Content>
+                </Card>
               ) : (
                 assignedCourses.map(course => {
                   const lecturer = lecturers.find(l => l.id === course.lecturerId);
+                  const avgRating = getCourseAverageRating(course.id);
                   return (
                     <Card key={course.id} style={styles.courseCard}>
                       <Card.Content>
                         <View style={styles.cardHeader}>
                           <Title>{course.name}</Title>
+                          <View style={styles.ratingContainer}>
+                            {renderRatingStarsDisplay(avgRating)}
+                          </View>
                           <TouchableOpacity onPress={() => unassignLecturer(course.id, course.name, course.lecturerName)}>
-                            <Text style={styles.unassignText}>🔄</Text>
+                            <Text style={styles.unassignText}>Unassign</Text>
                           </TouchableOpacity>
                         </View>
-                        <Paragraph>📚 Code: {course.code}</Paragraph>
-                        <Paragraph>🎯 Stream: {course.stream}</Paragraph>
+                        <Paragraph>Code: {course.code}</Paragraph>
+                        <Paragraph>Stream: {course.stream}</Paragraph>
                         <View style={styles.assignedInfo}>
-                          <Text style={styles.assignedLabel}>👨‍🏫 Lecturer:</Text>
+                          <Text style={styles.assignedLabel}>Lecturer:</Text>
                           <Text style={styles.assignedValue}>{lecturer?.name || course.lecturerName}</Text>
                         </View>
                       </Card.Content>
@@ -645,23 +714,27 @@ const PLDashboard = ({ navigation }) => {
           <View style={styles.section}>
             <View style={styles.actionButtons}>
               <TouchableOpacity style={[styles.actionButton, { backgroundColor: '#4CAF50' }]} onPress={() => setAddLectureModalVisible(true)}>
-                <Text style={styles.actionButtonText}>📖 Add New Lecture/Module</Text>
+                <Text style={styles.actionButtonText}>Add New Lecture/Module</Text>
               </TouchableOpacity>
             </View>
-            <Title style={styles.sectionTitle}>📖 All Lectures & Modules</Title>
+            <Title style={styles.sectionTitle}>All Lectures and Modules</Title>
             {lectures.length === 0 ? (
-              <Card style={styles.emptyCard}><Card.Content><Paragraph style={styles.emptyText}>No lectures added yet</Paragraph></Card.Content></Card>
+              <Card style={styles.emptyCard}>
+                <Card.Content>
+                  <Paragraph style={styles.emptyText}>No lectures added yet</Paragraph>
+                </Card.Content>
+              </Card>
             ) : (
               lectures.map(lecture => (
                 <Card key={lecture.id} style={styles.lectureCard}>
                   <Card.Content>
                     <Title>{lecture.title}</Title>
-                    <Paragraph>👨‍🏫 Lecturer: {lecture.lecturerName || 'Not assigned'}</Paragraph>
-                    <Paragraph>📅 Date: {lecture.date}</Paragraph>
-                    <Paragraph>⏰ Time: {lecture.time}</Paragraph>
-                    <Paragraph>📍 Venue: {lecture.venue}</Paragraph>
+                    <Paragraph>Lecturer: {lecture.lecturerName || 'Not assigned'}</Paragraph>
+                    <Paragraph>Date: {lecture.date}</Paragraph>
+                    <Paragraph>Time: {lecture.time}</Paragraph>
+                    <Paragraph>Venue: {lecture.venue}</Paragraph>
                     <TouchableOpacity style={styles.viewDetailsButton} onPress={() => { setSelectedLectureDetail(lecture); setLectureDetailVisible(true); }}>
-                      <Text style={styles.viewDetailsButtonText}>🔍 View Details</Text>
+                      <Text style={styles.viewDetailsButtonText}>View Details</Text>
                     </TouchableOpacity>
                   </Card.Content>
                 </Card>
@@ -672,34 +745,41 @@ const PLDashboard = ({ navigation }) => {
 
         {activeTab === 'reports' && (
           <View style={styles.section}>
-            <Title style={styles.sectionTitle}>📋 PRL Reports</Title>
-            {reports.length === 0 ? (
-              <Card style={styles.emptyCard}><Card.Content><Paragraph style={styles.emptyText}>No reports available</Paragraph></Card.Content></Card>
+            <Title style={styles.sectionTitle}>Reports from PRL and Lecturers</Title>
+            {allReports.length === 0 ? (
+              <Card style={styles.emptyCard}>
+                <Card.Content>
+                  <Paragraph style={styles.emptyText}>No reports available</Paragraph>
+                </Card.Content>
+              </Card>
             ) : (
-              reports.map(report => (
+              allReports.map(report => (
                 <Card key={report.id} style={styles.reportCard}>
                   <Card.Content>
                     <View style={styles.reportHeader}>
-                      <Title style={styles.reportTitle}>{report.title}</Title>
-                      <View style={[styles.statusBadge, { backgroundColor: report.status === 'reviewed' ? '#4CAF50' : '#FF9800' }]}>
-                        <Text style={styles.statusText}>{report.status?.toUpperCase() || 'PENDING'}</Text>
+                      <Title style={styles.reportTitle}>{report.title || `${report.courseName} Report`}</Title>
+                      <View style={[styles.statusBadge, { backgroundColor: report.status === 'reviewed' || report.feedback ? '#4CAF50' : '#FF9800' }]}>
+                        <Text style={styles.statusText}>{report.status?.toUpperCase() || (report.feedback ? 'REVIEWED' : 'PENDING')}</Text>
                       </View>
                     </View>
-                    <Paragraph>👤 Submitted by: {report.submittedBy}</Paragraph>
-                    <Paragraph>📅 Date: {new Date(report.submittedAt).toLocaleDateString()}</Paragraph>
-                    <Paragraph numberOfLines={2}>{report.content}</Paragraph>
+                    <Paragraph>Submitted by: {report.submittedBy || report.lecturerName}</Paragraph>
+                    <Paragraph>Date: {new Date(report.submittedAt || report.createdAt).toLocaleDateString()}</Paragraph>
+                    {report.courseName && <Paragraph>Course: {report.courseName} ({report.courseCode})</Paragraph>}
+                    {report.venue && <Paragraph>Venue: {report.venue}</Paragraph>}
+                    {report.scheduledTime && <Paragraph>Time: {report.scheduledTime}</Paragraph>}
+                    <Paragraph numberOfLines={2}>{report.content || report.topicTaught}</Paragraph>
                     {report.feedback ? (
                       <View style={styles.feedbackContainer}>
                         <Text style={styles.feedbackLabel}>Your Feedback:</Text>
                         <Text style={styles.feedbackText}>{report.feedback}</Text>
                       </View>
-                    ) : report.status !== 'reviewed' && (
+                    ) : (!report.feedback && (!report.status || report.status !== 'reviewed')) && (
                       <TouchableOpacity style={styles.feedbackButton} onPress={() => { setSelectedReport(report); setFeedbackModalVisible(true); }}>
-                        <Text style={styles.feedbackButtonText}>💬 Add Feedback</Text>
+                        <Text style={styles.feedbackButtonText}>Add Feedback</Text>
                       </TouchableOpacity>
                     )}
                     <TouchableOpacity style={styles.viewReportButton} onPress={() => { setSelectedReport(report); setReportDetailVisible(true); }}>
-                      <Text style={styles.viewReportButtonText}>📄 View Full Report</Text>
+                      <Text style={styles.viewReportButtonText}>View Full Report</Text>
                     </TouchableOpacity>
                   </Card.Content>
                 </Card>
@@ -711,7 +791,7 @@ const PLDashboard = ({ navigation }) => {
         {activeTab === 'rating' && (
           <>
             <View style={styles.section}>
-              <Title style={styles.sectionTitle}>⭐ Rate Courses</Title>
+              <Title style={styles.sectionTitle}>Rate Courses</Title>
               {courses.map(course => {
                 const avgRating = getCourseAverageRating(course.id);
                 return (
@@ -720,13 +800,13 @@ const PLDashboard = ({ navigation }) => {
                       <View style={styles.cardHeader}>
                         <Title>{course.name}</Title>
                         <View style={styles.ratingContainer}>
-                          <Text style={styles.avgRating}>{getRatingStars(avgRating)}</Text>
-                          <Text style={styles.avgRatingText}> ({avgRating})</Text>
+                          {renderRatingStarsDisplay(avgRating)}
                         </View>
                       </View>
                       <Paragraph>Code: {course.code}</Paragraph>
+                      <Paragraph>Stream: {course.stream}</Paragraph>
                       <TouchableOpacity style={styles.rateButton} onPress={() => { setSelectedCourseRating(course); setCourseRatingModalVisible(true); }}>
-                        <Text style={styles.rateButtonText}>⭐ Rate This Course</Text>
+                        <Text style={styles.rateButtonText}>Rate This Course</Text>
                       </TouchableOpacity>
                     </Card.Content>
                   </Card>
@@ -735,7 +815,7 @@ const PLDashboard = ({ navigation }) => {
             </View>
 
             <View style={styles.section}>
-              <Title style={styles.sectionTitle}>⭐ Rate Lecturers</Title>
+              <Title style={styles.sectionTitle}>Rate Lecturers</Title>
               {lecturers.map(lecturer => {
                 const avgRating = getLecturerAverageRating(lecturer.id);
                 return (
@@ -744,13 +824,12 @@ const PLDashboard = ({ navigation }) => {
                       <View style={styles.cardHeader}>
                         <Title>{lecturer.name}</Title>
                         <View style={styles.ratingContainer}>
-                          <Text style={styles.avgRating}>{getRatingStars(avgRating)}</Text>
-                          <Text style={styles.avgRatingText}> ({avgRating})</Text>
+                          {renderRatingStarsDisplay(avgRating)}
                         </View>
                       </View>
-                      <Paragraph>📚 Department: {lecturer.department || 'Not specified'}</Paragraph>
+                      <Paragraph>Department: {lecturer.department || 'Not specified'}</Paragraph>
                       <TouchableOpacity style={styles.rateButton} onPress={() => { setSelectedLecturerRating(lecturer); setLecturerRatingModalVisible(true); }}>
-                        <Text style={styles.rateButtonText}>⭐ Rate This Lecturer</Text>
+                        <Text style={styles.rateButtonText}>Rate This Lecturer</Text>
                       </TouchableOpacity>
                     </Card.Content>
                   </Card>
@@ -770,10 +849,10 @@ const PLDashboard = ({ navigation }) => {
               <TouchableOpacity onPress={() => setAddCourseModalVisible(false)}><Text style={styles.modalClose}>✕</Text></TouchableOpacity>
             </View>
             <ScrollView style={styles.modalScrollContent}>
-              <TextInput style={styles.modalInput} placeholder="Course Name *" value={newCourse.name} onChangeText={(text) => setNewCourse({...newCourse, name: text})} />
-              <TextInput style={styles.modalInput} placeholder="Course Code *" value={newCourse.code} onChangeText={(text) => setNewCourse({...newCourse, code: text})} />
+              <TextInput style={styles.modalInput} placeholder="Course Name " value={newCourse.name} onChangeText={(text) => setNewCourse({...newCourse, name: text})} />
+              <TextInput style={styles.modalInput} placeholder="Course Code " value={newCourse.code} onChangeText={(text) => setNewCourse({...newCourse, code: text})} />
               <TextInput style={[styles.modalInput, styles.textArea]} placeholder="Description" value={newCourse.description} onChangeText={(text) => setNewCourse({...newCourse, description: text})} multiline />
-              <Text style={styles.modalLabel}>Stream *</Text>
+              <Text style={styles.modalLabel}>Stream </Text>
               <View style={styles.streamContainer}>
                 {['Computing', 'Creative Arts', 'Business', 'Engineering', 'Design'].map(stream => (
                   <TouchableOpacity key={stream} style={[styles.streamChip, newCourse.stream === stream && styles.streamChipActive]} onPress={() => setNewCourse({...newCourse, stream})}>
@@ -801,8 +880,8 @@ const PLDashboard = ({ navigation }) => {
               <TouchableOpacity onPress={() => setAddLecturerModalVisible(false)}><Text style={styles.modalClose}>✕</Text></TouchableOpacity>
             </View>
             <ScrollView style={styles.modalScrollContent}>
-              <TextInput style={styles.modalInput} placeholder="Full Name *" value={newLecturer.name} onChangeText={(text) => setNewLecturer({...newLecturer, name: text})} />
-              <TextInput style={styles.modalInput} placeholder="Email *" value={newLecturer.email} onChangeText={(text) => setNewLecturer({...newLecturer, email: text})} keyboardType="email-address" />
+              <TextInput style={styles.modalInput} placeholder="Full Name " value={newLecturer.name} onChangeText={(text) => setNewLecturer({...newLecturer, name: text})} />
+              <TextInput style={styles.modalInput} placeholder="Email " value={newLecturer.email} onChangeText={(text) => setNewLecturer({...newLecturer, email: text})} keyboardType="email-address" />
               <TextInput style={styles.modalInput} placeholder="Department" value={newLecturer.department} onChangeText={(text) => setNewLecturer({...newLecturer, department: text})} />
               <TextInput style={styles.modalInput} placeholder="Specialization" value={newLecturer.specialization} onChangeText={(text) => setNewLecturer({...newLecturer, specialization: text})} />
               <View style={styles.modalButtons}>
@@ -893,7 +972,7 @@ const PLDashboard = ({ navigation }) => {
               <TouchableOpacity onPress={() => setFeedbackModalVisible(false)}><Text style={styles.modalClose}>✕</Text></TouchableOpacity>
             </View>
             <ScrollView style={styles.modalScrollContent}>
-              <Text style={styles.modalLabel}>Report: {selectedReport?.title}</Text>
+              <Text style={styles.modalLabel}>Report: {selectedReport?.title || selectedReport?.courseName}</Text>
               <TextInput style={[styles.modalInput, styles.textArea]} placeholder="Enter your feedback..." value={feedbackText} onChangeText={setFeedbackText} multiline numberOfLines={5} />
               <View style={styles.modalButtons}>
                 <TouchableOpacity style={[styles.modalButton, styles.cancelButton]} onPress={() => setFeedbackModalVisible(false)}><Text style={styles.cancelButtonText}>Cancel</Text></TouchableOpacity>
@@ -941,12 +1020,19 @@ const PLDashboard = ({ navigation }) => {
         <View style={styles.modalContainer}>
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Report Details</Text>
-            <Text style={styles.modalReportTitle}>{selectedReport?.title}</Text>
-            <View style={styles.detailRow}><Text style={styles.detailLabel}>Submitted by:</Text><Text style={styles.detailValue}>{selectedReport?.submittedBy}</Text></View>
-            <View style={styles.detailRow}><Text style={styles.detailLabel}>Date:</Text><Text style={styles.detailValue}>{new Date(selectedReport?.submittedAt).toLocaleString()}</Text></View>
-            <View style={styles.detailRow}><Text style={styles.detailLabel}>Status:</Text><Text style={[styles.detailValue, { color: selectedReport?.status === 'reviewed' ? '#4CAF50' : '#FF9800' }]}>{selectedReport?.status?.toUpperCase()}</Text></View>
+            <Text style={styles.modalReportTitle}>{selectedReport?.title || selectedReport?.courseName}</Text>
+            <View style={styles.detailRow}><Text style={styles.detailLabel}>Submitted by:</Text><Text style={styles.detailValue}>{selectedReport?.submittedBy || selectedReport?.lecturerName}</Text></View>
+            <View style={styles.detailRow}><Text style={styles.detailLabel}>Date:</Text><Text style={styles.detailValue}>{new Date(selectedReport?.submittedAt || selectedReport?.createdAt).toLocaleString()}</Text></View>
+            <View style={styles.detailRow}><Text style={styles.detailLabel}>Status:</Text><Text style={[styles.detailValue, { color: (selectedReport?.status === 'reviewed' || selectedReport?.feedback) ? '#4CAF50' : '#FF9800' }]}>{((selectedReport?.status || (selectedReport?.feedback ? 'REVIEWED' : 'PENDING')).toUpperCase())}</Text></View>
+            {selectedReport?.courseName && (<View style={styles.detailRow}><Text style={styles.detailLabel}>Course:</Text><Text style={styles.detailValue}>{selectedReport?.courseName} ({selectedReport?.courseCode})</Text></View>)}
+            {selectedReport?.venue && (<View style={styles.detailRow}><Text style={styles.detailLabel}>Venue:</Text><Text style={styles.detailValue}>{selectedReport?.venue}</Text></View>)}
+            {selectedReport?.scheduledTime && (<View style={styles.detailRow}><Text style={styles.detailLabel}>Time:</Text><Text style={styles.detailValue}>{selectedReport?.scheduledTime}</Text></View>)}
+            {selectedReport?.weekOfReporting && (<View style={styles.detailRow}><Text style={styles.detailLabel}>Week:</Text><Text style={styles.detailValue}>{selectedReport?.weekOfReporting}</Text></View>)}
             <Text style={styles.detailLabel}>Content:</Text>
-            <Text style={styles.reportContentText}>{selectedReport?.content}</Text>
+            <Text style={styles.reportContentText}>{selectedReport?.content || selectedReport?.topicTaught}</Text>
+            {selectedReport?.learningOutcomes && (<><Text style={styles.detailLabel}>Learning Outcomes:</Text><Text style={styles.reportContentText}>{selectedReport?.learningOutcomes}</Text></>)}
+            {selectedReport?.recommendations && (<><Text style={styles.detailLabel}>Recommendations:</Text><Text style={styles.reportContentText}>{selectedReport?.recommendations}</Text></>)}
+            {selectedReport?.actualStudentsPresent && (<View style={styles.detailRow}><Text style={styles.detailLabel}>Attendance:</Text><Text style={styles.detailValue}>{selectedReport?.actualStudentsPresent} / {selectedReport?.totalRegisteredStudents || 0}</Text></View>)}
             {selectedReport?.feedback && (<><Text style={styles.detailLabel}>Feedback:</Text><Text style={styles.feedbackText}>{selectedReport?.feedback}</Text></>)}
             <TouchableOpacity style={styles.closeModalButton} onPress={() => setReportDetailVisible(false)}><Text style={styles.closeModalButtonText}>Close</Text></TouchableOpacity>
           </View>
@@ -1007,9 +1093,9 @@ const styles = StyleSheet.create({
   emptyCard: { marginBottom: 10, backgroundColor: '#f0f0f0' },
   emptyText: { textAlign: 'center', color: '#999' },
   courseCard: { marginBottom: 10, elevation: 2, borderRadius: 8 },
-  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  deleteText: { fontSize: 20, marginLeft: 10, color: '#F44336' },
-  unassignText: { fontSize: 18, marginRight: 10, color: '#FF9800' },
+  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 },
+  deleteText: { fontSize: 14, marginLeft: 10, color: '#F44336' },
+  unassignText: { fontSize: 14, marginRight: 10, color: '#FF9800' },
   assignedInfo: { marginTop: 10, padding: 10, backgroundColor: '#e8f5e9', borderRadius: 8 },
   assignedLabel: { fontWeight: 'bold', fontSize: 12, color: '#4CAF50' },
   assignedValue: { fontSize: 14, marginTop: 3, fontWeight: '500', color: '#333' },
@@ -1018,7 +1104,7 @@ const styles = StyleSheet.create({
   viewDetailsButton: { backgroundColor: '#2196F3', padding: 10, borderRadius: 8, alignItems: 'center', marginTop: 10 },
   viewDetailsButtonText: { color: '#fff', fontWeight: 'bold' },
   reportCard: { marginBottom: 15, elevation: 2, borderRadius: 8 },
-  reportHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
+  reportHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' },
   reportTitle: { fontSize: 16, flex: 1 },
   statusBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
   statusText: { color: '#fff', fontSize: 10, fontWeight: 'bold' },
@@ -1070,7 +1156,7 @@ const styles = StyleSheet.create({
   modalReportTitle: { textAlign: 'center', fontSize: 18, fontWeight: 'bold', marginBottom: 15 },
   modalLectureTitle: { textAlign: 'center', fontSize: 18, fontWeight: 'bold', marginBottom: 15 },
   detailRow: { flexDirection: 'row', marginBottom: 10 },
-  detailLabel: { width: 100, fontWeight: 'bold', color: '#333' },
+  detailLabel: { width: 120, fontWeight: 'bold', color: '#333' },
   detailValue: { flex: 1, color: '#666' },
   reportContentText: { fontSize: 14, color: '#666', lineHeight: 20, marginBottom: 15 },
   closeModalButton: { backgroundColor: '#6200ee', padding: 12, borderRadius: 8, alignItems: 'center', marginTop: 20 },
