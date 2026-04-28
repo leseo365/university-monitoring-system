@@ -325,6 +325,61 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
+// ============ GET ALL USERS (For debugging) ============
+app.get('/api/auth/users', async (req, res) => {
+  try {
+    console.log('Fetching all users...');
+    const users = await getFromFirestore('users');
+    
+    // Remove sensitive data like passwordHash before sending
+    const safeUsers = users.map(user => ({
+      uid: user.uid,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      createdAt: user.createdAt,
+      hasPassword: !!user.passwordHash
+    }));
+    
+    console.log(`Found ${safeUsers.length} users`);
+    res.json({ 
+      success: true, 
+      users: safeUsers, 
+      count: safeUsers.length 
+    });
+  } catch (error) {
+    console.error('Error fetching users:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============ RESET PASSWORD (For debugging) ============
+app.post('/api/auth/reset-password', async (req, res) => {
+  try {
+    const { email, newPassword } = req.body;
+    
+    if (!email || !newPassword) {
+      return res.status(400).json({ error: 'Email and new password required' });
+    }
+    
+    const users = await getFromFirestore('users', 'email', email);
+    if (users.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    const userData = users[0];
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    
+    await saveToFirestore('users', userData.uid, { ...userData, passwordHash: hashedPassword });
+    
+    console.log(`Password reset for: ${email}`);
+    res.json({ success: true, message: 'Password reset successfully' });
+  } catch (error) {
+    console.error('Error resetting password:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // ============ COURSES ============
 app.get('/api/courses', async (req, res) => {
   try {
@@ -842,7 +897,7 @@ app.post('/api/reports/:id/feedback', async (req, res) => {
 app.get('/api/status', (req, res) => {
   res.json({ 
     firebaseConnected: firebaseConnected,
-    mode: useRestApi ? 'REST_API' : (adminSdkWorked ? 'ADMIN SDK' : 'LOCAL STORAGE'),
+    mode: useRestApi ? 'REST_API' : (adminSdkWorked ? 'ADMIN SDK' : 'LOCAL_STORAGE'),
     status: 'running',
     timestamp: new Date().toISOString(),
     collections: {
@@ -875,6 +930,7 @@ app.get('/', (req, res) => {
     mode: useRestApi ? 'REST_API' : (adminSdkWorked ? 'ADMIN SDK' : 'LOCAL_STORAGE'),
     endpoints: {
       auth: '/api/auth',
+      users: '/api/auth/users',
       courses: '/api/courses',
       lecturers: '/api/lecturers',
       lectures: '/api/lectures',
