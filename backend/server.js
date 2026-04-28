@@ -346,6 +346,10 @@ app.post('/api/auth/login', async (req, res) => {
   try {
     const { email, password } = req.body;
     
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email and password required' });
+    }
+    
     const users = await getFromFirestore('users', 'email', email);
     
     if (users.length === 0) {
@@ -355,9 +359,21 @@ app.post('/api/auth/login', async (req, res) => {
     const userData = users[0];
     
     console.log('User found:', userData.email);
-    console.log('User role in database:', userData.role);
+    console.log('User role:', userData.role);
+    console.log('Password hash exists:', !!userData.passwordHash);
     
-    const isValid = await bcrypt.compare(password, userData.passwordHash);
+    let isValid = false;
+    
+    try {
+      isValid = await bcrypt.compare(password, userData.passwordHash);
+      console.log('Password valid:', isValid);
+    } catch (compareError) {
+      console.error('Bcrypt compare error:', compareError.message);
+      return res.status(401).json({ 
+        error: 'Password hash corrupted. Please reset your password.',
+        needsReset: true
+      });
+    }
     
     if (!isValid) {
       console.log('Invalid password for:', email);
@@ -365,7 +381,6 @@ app.post('/api/auth/login', async (req, res) => {
     }
     
     console.log('Login successful for:', email);
-    console.log('Returning role:', userData.role);
     
     const validRoles = ['student', 'lecturer', 'prl', 'pl'];
     const userRole = validRoles.includes(userData.role) ? userData.role : 'student';
@@ -381,79 +396,80 @@ app.post('/api/auth/login', async (req, res) => {
     });
     
   } catch (error) {
-    console.error('Error:', error.message);
-    res.status(500).json({ error: error.message });
+    console.error('Login error:', error.message);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
-// Debug endpoint to find user by email
-app.get('/api/auth/find-user/:email', async (req, res) => {
+// Set/Reset password for a user
+app.post('/api/auth/set-password', async (req, res) => {
   try {
-    const email = req.params.email;
-    console.log('Looking for user with email:', email);
+    const { email, password } = req.body;
     
-    const users = await getFromFirestore('users', 'email', email);
-    
-    console.log(`Query returned ${users.length} users`);
-    
-    const safeUsers = users.map(user => ({
-      name: user.name,
-      email: user.email,
-      role: user.role,
-      uid: user.uid
-    }));
-    
-    res.json({ 
-      success: true, 
-      count: users.length,
-      users: safeUsers
-    });
-  } catch (error) {
-    console.error('Error:', error.message);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Update user endpoint
-app.post('/api/auth/update-user', async (req, res) => {
-  try {
-    const { uid, email, newRole, newName } = req.body;
-    
-    let userToUpdate = null;
-    let userId = uid;
-    
-    if (email) {
-      const users = await getFromFirestore('users', 'email', email);
-      if (users.length === 0) {
-        return res.status(404).json({ error: 'User not found' });
-      }
-      userToUpdate = users[0];
-      userId = userToUpdate.uid;
-    } else if (uid) {
-      const users = await getFromFirestore('users');
-      userToUpdate = users.find(u => u.uid === uid);
-      if (!userToUpdate) {
-        return res.status(404).json({ error: 'User not found' });
-      }
-    } else {
-      return res.status(400).json({ error: 'Either uid or email required' });
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email and password required' });
     }
     
-    const updatedData = { ...userToUpdate };
-    if (newRole) updatedData.role = newRole;
-    if (newName) updatedData.name = newName;
-    updatedData.updatedAt = new Date().toISOString();
+    if (password.length < 4) {
+      return res.status(400).json({ error: 'Password must be at least 4 characters' });
+    }
     
-    await saveToFirestore('users', userId, updatedData);
+    const users = await getFromFirestore('users', 'email', email);
+    if (users.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
     
-    console.log(`Updated user: ${userToUpdate.email}`);
-    res.json({ success: true, message: 'User updated successfully', user: updatedData });
+    const userData = users[0];
+    const hashedPassword = await bcrypt.hash(password, 10);
+    
+    // Verify the hash works
+    const testVerify = await bcrypt.compare(password, hashedPassword);
+    if (!testVerify) {
+      return res.status(500).json({ error: 'Failed to create valid password hash' });
+    }
+    
+    await saveToFirestore('users', userData.uid, { ...userData, passwordHash: hashedPassword });
+    
+    console.log(`Password set for: ${email}`);
+    res.json({ 
+      success: true, 
+      message: 'Password set successfully',
+      email: email
+    });
   } catch (error) {
-    console.error('Error updating user:', error.message);
+    console.error('Error setting password:', error.message);
     res.status(500).json({ error: error.message });
   }
 });
 
+// Reset password (legacy)
+app.post('/api/auth/reset-password', async (req, res) => {
+  try {
+    const { email, newPassword } = req.body;
+    
+    if (!email || !newPassword) {
+      return res.status(400).json({ error: 'Email and new password required' });
+    }
+    
+    const users = await getFromFirestore('users', 'email', email);
+    if (users.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    const userData = users[0];
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    
+    await saveToFirestore('users', userData.uid, { ...userData, passwordHash: hashedPassword });
+    
+    console.log(`Password reset for: ${email}`);
+    res.json({ success: true, message: 'Password reset successfully' });
+  } catch (error) {
+    console.error('Error resetting password:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Update user role
 app.post('/api/auth/update-role', async (req, res) => {
   try {
     const { email, newRole } = req.body;
@@ -483,6 +499,7 @@ app.post('/api/auth/update-role', async (req, res) => {
   }
 });
 
+// Get all users
 app.get('/api/auth/users', async (req, res) => {
   try {
     console.log('Fetching all users...');
@@ -509,28 +526,28 @@ app.get('/api/auth/users', async (req, res) => {
   }
 });
 
-app.post('/api/auth/reset-password', async (req, res) => {
+// Find user by email
+app.get('/api/auth/find-user/:email', async (req, res) => {
   try {
-    const { email, newPassword } = req.body;
-    
-    if (!email || !newPassword) {
-      return res.status(400).json({ error: 'Email and new password required' });
-    }
+    const email = req.params.email;
+    console.log('Looking for user with email:', email);
     
     const users = await getFromFirestore('users', 'email', email);
-    if (users.length === 0) {
-      return res.status(404).json({ error: 'User not found' });
-    }
     
-    const userData = users[0];
-    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    const safeUsers = users.map(user => ({
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      uid: user.uid
+    }));
     
-    await saveToFirestore('users', userData.uid, { ...userData, passwordHash: hashedPassword });
-    
-    console.log(`Password reset for: ${email}`);
-    res.json({ success: true, message: 'Password reset successfully' });
+    res.json({ 
+      success: true, 
+      count: users.length,
+      users: safeUsers
+    });
   } catch (error) {
-    console.error('Error resetting password:', error.message);
+    console.error('Error:', error.message);
     res.status(500).json({ error: error.message });
   }
 });
@@ -1086,6 +1103,7 @@ app.get('/', (req, res) => {
     endpoints: {
       auth: '/api/auth',
       users: '/api/auth/users',
+      setPassword: '/api/auth/set-password',
       updateRole: '/api/auth/update-role',
       resetPassword: '/api/auth/reset-password',
       courses: '/api/courses',
