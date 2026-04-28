@@ -5,6 +5,7 @@ const admin = require('firebase-admin');
 const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
+require('dotenv').config();
 
 const app = express();
 
@@ -12,7 +13,7 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// firebase configuration
+// firebase configuration 
 let db;
 let auth;
 let firebaseConnected = false;
@@ -20,9 +21,9 @@ let useRestApi = false;
 let adminSdkWorked = false;
 
 // Firebase REST API config
-const FIREBASE_API_KEY = "AIzaSyD4lD8FVko6H2UoUlvzb_O19f_ASAE2caQ";
-const FIREBASE_PROJECT_ID = "university-monitoring-system";
-const FIREBASE_WEB_API_KEY = "AIzaSyD4lD8FVko6H2UoUlvzb_O19f_ASAE2caQ";
+const FIREBASE_API_KEY = process.env.FIREBASE_API_KEY || "AIzaSyD4lD8FVko6H2UoUlvzb_O19f_ASAE2caQ";
+const FIREBASE_PROJECT_ID = process.env.FIREBASE_PROJECT_ID || "university-monitoring-system";
+const FIREBASE_WEB_API_KEY = process.env.FIREBASE_WEB_API_KEY || "AIzaSyD4lD8FVko6H2UoUlvzb_O19f_ASAE2caQ";
 
 // Local fallback storage
 const localDB = {
@@ -44,14 +45,50 @@ console.log('========================================\n');
 
 // Function to initialize Firebase
 async function initializeFirebase() {
+  // Try environment variables first (for production)
+  if (process.env.FIREBASE_PROJECT_ID && process.env.FIREBASE_CLIENT_EMAIL && process.env.FIREBASE_PRIVATE_KEY) {
+    try {
+      console.log('Initializing Firebase with environment variables...');
+      admin.initializeApp({
+        credential: admin.credential.cert({
+          projectId: process.env.FIREBASE_PROJECT_ID,
+          clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+          privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
+        }),
+        databaseURL: `https://${process.env.FIREBASE_PROJECT_ID}.firebaseio.com`
+      });
+      
+      db = admin.firestore();
+      auth = admin.auth();
+      adminSdkWorked = true;
+      firebaseConnected = true;
+      
+      console.log('Firebase Admin SDK initialized from environment variables!');
+      
+      try {
+        await auth.listUsers(1);
+        console.log('Admin SDK connection verified!');
+        return;
+      } catch (error) {
+        console.log('Admin SDK connection failed:', error.message);
+        adminSdkWorked = false;
+        firebaseConnected = false;
+      }
+    } catch (error) {
+      console.error('Admin SDK Error from env:', error.message);
+      adminSdkWorked = false;
+    }
+  }
+  
+  // Try local service account file (for development)
   const serviceAccountPath = path.join(__dirname, 'serviceAccountKey.json');
   
-  if (fs.existsSync(serviceAccountPath)) {
+  if (!adminSdkWorked && fs.existsSync(serviceAccountPath)) {
     try {
       const fileContent = fs.readFileSync(serviceAccountPath, 'utf8');
       const serviceAccount = JSON.parse(fileContent);
       
-      console.log('Service account loaded');
+      console.log('Service account loaded from file');
       console.log(`Project ID: ${serviceAccount.project_id}`);
       
       admin.initializeApp({
@@ -65,7 +102,7 @@ async function initializeFirebase() {
       adminSdkWorked = true;
       firebaseConnected = true;
       
-      console.log('Firebase Admin SDK initialized!');
+      console.log('Firebase Admin SDK initialized from file!');
       
       try {
         await auth.listUsers(1);
@@ -77,11 +114,9 @@ async function initializeFirebase() {
         firebaseConnected = false;
       }
     } catch (error) {
-      console.error('Admin SDK Error:', error.message);
+      console.error('Admin SDK Error from file:', error.message);
       adminSdkWorked = false;
     }
-  } else {
-    console.log('No service account file found');
   }
   
   if (!adminSdkWorked) {
@@ -188,7 +223,7 @@ initializeFirebase().then(() => {
   console.log('========================================\n');
 });
 
-// authentication
+// ============ AUTHENTICATION ============
 app.post('/api/auth/register', async (req, res) => {
   console.log('\nREGISTER:', req.body.email);
   
@@ -290,7 +325,7 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
-// courses
+// ============ COURSES ============
 app.get('/api/courses', async (req, res) => {
   try {
     const courses = await getFromFirestore('courses');
@@ -414,7 +449,7 @@ app.delete('/api/courses/:id', async (req, res) => {
   }
 });
 
-// lecturers
+// ============ LECTURERS ============
 app.get('/api/lecturers', async (req, res) => {
   try {
     const lecturers = await getFromFirestore('lecturers');
@@ -444,7 +479,7 @@ app.post('/api/lecturers', async (req, res) => {
   }
 });
 
-// lectures
+// ============ LECTURES ============
 app.get('/api/lectures', async (req, res) => {
   try {
     const lectures = await getFromFirestore('lectures');
@@ -504,7 +539,7 @@ app.put('/api/lectures/:id', async (req, res) => {
   }
 });
 
-// lecturer reports
+// ============ LECTURER REPORTS ============
 app.get('/api/lecturer-reports', async (req, res) => {
   try {
     const reports = await getFromFirestore('lecturerReports');
@@ -588,7 +623,7 @@ app.post('/api/lecturer-reports/:id/feedback', async (req, res) => {
   }
 });
 
-// ratings
+// ============ RATINGS ============
 app.post('/api/rate-course', async (req, res) => {
   console.log('\nNEW COURSE RATING');
   console.log(`Course: ${req.body.courseId}`);
@@ -709,7 +744,7 @@ app.get('/api/lecture-ratings/:lectureId', async (req, res) => {
   }
 });
 
-// student attendance
+// ============ STUDENT ATTENDANCE ============
 app.get('/api/student-attendance/:studentId', async (req, res) => {
   try {
     const { studentId } = req.params;
@@ -756,7 +791,7 @@ app.post('/api/student-attendance/mark', async (req, res) => {
   }
 });
 
-// reports
+// ============ LEGACY REPORTS ============
 app.get('/api/reports', async (req, res) => {
   try {
     const reports = await getFromFirestore('reports');
@@ -803,12 +838,13 @@ app.post('/api/reports/:id/feedback', async (req, res) => {
   }
 });
 
-// status
+// ============ STATUS ============
 app.get('/api/status', (req, res) => {
   res.json({ 
     firebaseConnected: firebaseConnected,
-    mode: useRestApi ? 'REST_API' : (adminSdkWorked ? 'ADMIN_SDK' : 'LOCAL_STORAGE'),
+    mode: useRestApi ? 'REST_API' : (adminSdkWorked ? 'ADMIN SDK' : 'LOCAL STORAGE'),
     status: 'running',
+    timestamp: new Date().toISOString(),
     collections: {
       users: true,
       courses: true,
@@ -827,7 +863,8 @@ app.get('/api/test', (req, res) => {
   res.json({ 
     message: 'Server is running!',
     firebaseConnected: firebaseConnected,
-    mode: useRestApi ? 'REST_API' : (adminSdkWorked ? 'ADMIN_SDK' : 'LOCAL_STORAGE')
+    mode: useRestApi ? 'REST_API' : (adminSdkWorked ? 'ADMIN SDK' : 'LOCAL_STORAGE'),
+    timestamp: new Date().toISOString()
   });
 });
 
@@ -835,16 +872,47 @@ app.get('/', (req, res) => {
   res.json({
     message: 'University Monitoring System API',
     status: 'running',
-    mode: useRestApi ? 'REST_API' : (adminSdkWorked ? 'ADMIN SDK' : 'LOCAL_STORAGE')
+    mode: useRestApi ? 'REST_API' : (adminSdkWorked ? 'ADMIN SDK' : 'LOCAL_STORAGE'),
+    endpoints: {
+      auth: '/api/auth',
+      courses: '/api/courses',
+      lecturers: '/api/lecturers',
+      lectures: '/api/lectures',
+      reports: '/api/lecturer-reports',
+      ratings: '/api/rate-course, /api/rate-lecturer, /api/rate-lecture',
+      attendance: '/api/student-attendance'
+    }
   });
 });
 
-const PORT = 3000;
-app.listen(PORT, '0.0.0.0', () => {
+// 404 handler
+app.use((req, res) => {
+  res.status(404).json({ 
+    error: 'Not Found',
+    message: `Cannot ${req.method} ${req.url}`,
+    timestamp: new Date().toISOString()
+  });
+});
+
+// Error handler
+app.use((err, req, res, next) => {
+  console.error('Server error:', err);
+  res.status(500).json({ 
+    error: 'Internal Server Error',
+    message: err.message,
+    timestamp: new Date().toISOString()
+  });
+});
+
+const PORT = process.env.PORT || 3000;
+const HOST = '0.0.0.0';
+
+app.listen(PORT, HOST, () => {
   console.log(`\n========================================`);
-  console.log(`Server running on http://localhost:${PORT}`);
+  console.log(`Server running on http://${HOST}:${PORT}`);
   console.log(`Firebase: ${firebaseConnected ? 'CONNECTED' : 'FALLBACK'}`);
   console.log(`Mode: ${useRestApi ? 'REST API' : (adminSdkWorked ? 'ADMIN SDK' : 'LOCAL STORAGE')}`);
+  console.log(`Ready to accept requests!`);
   console.log(`========================================\n`);
 });
 
