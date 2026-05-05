@@ -14,7 +14,7 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 
-
+// API URL based on platform
 const API_URL = Platform.select({
   android: 'http://10.0.2.2:3000/api',
   ios: 'http://localhost:3000/api',
@@ -191,7 +191,7 @@ const RegisterScreen = ({ navigation }) => {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.card}>
-          <Text style={styles.title}>🎓 University Monitoring System</Text>
+          <Text style={styles.title}>University Monitoring System</Text>
           <Text style={styles.subtitle}>Create Account</Text>
           
           {/* Full Name Input */}
@@ -211,7 +211,7 @@ const RegisterScreen = ({ navigation }) => {
               onPress={() => setRole('student')}
             >
               <Text style={role === 'student' ? styles.roleTextActive : styles.roleText}>
-                 Student
+                Student
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
@@ -219,7 +219,7 @@ const RegisterScreen = ({ navigation }) => {
               onPress={() => setRole('lecturer')}
             >
               <Text style={role === 'lecturer' ? styles.roleTextActive : styles.roleText}>
-                 Lecturer
+                Lecturer
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
@@ -227,7 +227,7 @@ const RegisterScreen = ({ navigation }) => {
               onPress={() => setRole('prl')}
             >
               <Text style={role === 'prl' ? styles.roleTextActive : styles.roleText}>
-                 PRL
+                PRL
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
@@ -235,7 +235,7 @@ const RegisterScreen = ({ navigation }) => {
               onPress={() => setRole('pl')}
             >
               <Text style={role === 'pl' ? styles.roleTextActive : styles.roleText}>
-                 Program Leader
+                Program Leader
               </Text>
             </TouchableOpacity>
           </View>
@@ -264,7 +264,7 @@ const RegisterScreen = ({ navigation }) => {
               style={styles.eyeButton}
               onPress={() => setShowPassword(!showPassword)}
             >
-              <Text style={styles.eyeText}>{showPassword ? '' : ''}</Text>
+              <Text style={styles.eyeText}>{showPassword ? 'Hide' : 'Show'}</Text>
             </TouchableOpacity>
           </View>
           
@@ -281,7 +281,7 @@ const RegisterScreen = ({ navigation }) => {
               style={styles.eyeButton}
               onPress={() => setShowConfirmPassword(!showConfirmPassword)}
             >
-              <Text style={styles.eyeText}>{showConfirmPassword ? '' : ''}</Text>
+              <Text style={styles.eyeText}>{showConfirmPassword ? 'Hide' : 'Show'}</Text>
             </TouchableOpacity>
           </View>
           
@@ -341,13 +341,13 @@ const RegisterScreen = ({ navigation }) => {
           {/* Server Status */}
           <View style={styles.infoContainer}>
             <Text style={styles.infoText}>
-              🔧 Server: {API_URL}
+              Server: {API_URL}
             </Text>
             <Text style={styles.infoText}>
-               Demo accounts use password: "luct"
+              Demo accounts use password: "luct"
             </Text>
             <Text style={styles.infoText}>
-               Make sure backend server is running on port 3000
+              Make sure backend server is running on port 3000
             </Text>
           </View>
         </View>
@@ -408,7 +408,7 @@ const styles = StyleSheet.create({
   },
   passwordInput: {
     flex: 1,
-    paddingRight: 45,
+    paddingRight: 55,
   },
   eyeButton: {
     position: 'absolute',
@@ -416,7 +416,9 @@ const styles = StyleSheet.create({
     top: 12,
   },
   eyeText: {
-    fontSize: 20,
+    fontSize: 14,
+    color: '#6200ee',
+    fontWeight: '500',
   },
   label: {
     fontSize: 14,

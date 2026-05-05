@@ -11,11 +11,18 @@ const app = express();
 
 // Middleware
 app.use(cors({
-  origin: '*',
+  origin: '*', 
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
+  exposedHeaders: ['Content-Range', 'X-Content-Range'],
+  preflightContinue: false,
+  optionsSuccessStatus: 204
 }));
+
+// Handle preflight requests for all routes
+app.options('*', cors());
+
 app.use(express.json());
 
 // firebase configuration 
@@ -267,7 +274,7 @@ initializeFirebase().then(() => {
   console.log('========================================\n');
 });
 
-// ============ AUTHENTICATION ============
+// Authentication
 app.post('/api/auth/register', async (req, res) => {
   console.log('\nREGISTER:', req.body.email);
   
@@ -442,7 +449,7 @@ app.post('/api/auth/set-password', async (req, res) => {
   }
 });
 
-// Reset password (legacy)
+// Reset password
 app.post('/api/auth/reset-password', async (req, res) => {
   try {
     const { email, newPassword } = req.body;
@@ -552,7 +559,7 @@ app.get('/api/auth/find-user/:email', async (req, res) => {
   }
 });
 
-// ============ COURSES ============
+// Courses
 app.get('/api/courses', async (req, res) => {
   try {
     const courses = await getFromFirestore('courses');
@@ -676,7 +683,7 @@ app.delete('/api/courses/:id', async (req, res) => {
   }
 });
 
-// ============ LECTURERS ============
+// Lecturers
 app.get('/api/lecturers', async (req, res) => {
   try {
     const lecturers = await getFromFirestore('lecturers');
@@ -706,7 +713,7 @@ app.post('/api/lecturers', async (req, res) => {
   }
 });
 
-// ============ LECTURES ============
+// Lectures
 app.get('/api/lectures', async (req, res) => {
   try {
     const lectures = await getFromFirestore('lectures');
@@ -766,7 +773,7 @@ app.put('/api/lectures/:id', async (req, res) => {
   }
 });
 
-// ============ LECTURER REPORTS ============
+// Lecturer Report
 app.get('/api/lecturer-reports', async (req, res) => {
   try {
     const reports = await getFromFirestore('lecturerReports');
@@ -850,7 +857,7 @@ app.post('/api/lecturer-reports/:id/feedback', async (req, res) => {
   }
 });
 
-// ============ RATINGS ============
+// Ratings
 app.post('/api/rate-course', async (req, res) => {
   console.log('\nNEW COURSE RATING');
   console.log(`Course: ${req.body.courseId}`);
@@ -971,7 +978,7 @@ app.get('/api/lecture-ratings/:lectureId', async (req, res) => {
   }
 });
 
-// ============ STUDENT ATTENDANCE ============
+// Student Attendance
 app.get('/api/student-attendance/:studentId', async (req, res) => {
   try {
     const { studentId } = req.params;
@@ -1018,7 +1025,7 @@ app.post('/api/student-attendance/mark', async (req, res) => {
   }
 });
 
-// ============ LEGACY REPORTS ============
+// Reports
 app.get('/api/reports', async (req, res) => {
   try {
     const reports = await getFromFirestore('reports');
@@ -1065,7 +1072,7 @@ app.post('/api/reports/:id/feedback', async (req, res) => {
   }
 });
 
-// ============ STATUS ============
+// Status
 app.get('/api/status', (req, res) => {
   res.json({ 
     firebaseConnected: firebaseConnected,
@@ -1139,12 +1146,11 @@ const PORT = process.env.PORT || 3000;
 const HOST = '0.0.0.0';
 
 app.listen(PORT, HOST, () => {
-  console.log(`\n========================================`);
   console.log(`Server running on http://${HOST}:${PORT}`);
   console.log(`Firebase: ${firebaseConnected ? 'CONNECTED' : 'FALLBACK'}`);
-  console.log(`Mode: ${useRestApi ? 'REST API' : (adminSdkWorked ? 'ADMIN SDK' : 'LOCAL_STORAGE')}`);
+  console.log(`Mode: ${useRestApi ? 'REST_API' : (adminSdkWorked ? 'ADMIN SDK' : 'LOCAL_STORAGE')}`);
   console.log(`Ready to accept requests!`);
-  console.log(`========================================\n`);
+  
 });
 
 module.exports = { app, db, auth, firebaseConnected, useRestApi };

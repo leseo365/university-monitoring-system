@@ -41,10 +41,10 @@ if (!admin.apps.length) {
       credential: admin.credential.cert(serviceAccount),
       databaseURL: "https://university-monitoring-system-default-rtdb.firebaseio.com"
     });
-    console.log('✅ Firebase Admin initialized successfully');
-    console.log(`📁 Project ID: ${serviceAccount.project_id}`);
+    console.log(' Firebase Admin initialized successfully');
+    console.log(` Project ID: ${serviceAccount.project_id}`);
   } catch (error) {
-    console.error('❌ Firebase initialization error:', error.message);
+    console.error(' Firebase initialization error:', error.message);
     throw error;
   }
 } else {

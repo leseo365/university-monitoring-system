@@ -47,7 +47,7 @@ const LoginScreen = ({ navigation }) => {
       console.error('Server connection failed:', error);
       Alert.alert(
         'Connection Error',
-        'Cannot connect to server.\n\nMake sure:\n1. Backend is running: cd backend && node server.js\n2. Server is on port 3000\n3. For Android emulator, use 10.0.2.2\n4. For physical device, use your computer IP address'
+        'Cannot connect to server.\n\nMake sure:\n1. Backend is running\n2. Check your internet connection'
       );
     }
   };
@@ -75,8 +75,9 @@ const LoginScreen = ({ navigation }) => {
         Alert.alert('Success', `Welcome back, ${response.user.name}!`);
         
         const userRole = response.user.role;
-        console.log('Navigating to:', userRole);
+        console.log('Navigating to dashboard for role:', userRole);
         
+        // Navigate based on role
         if (userRole === 'student') {
           navigation.replace('StudentDashboard');
         } else if (userRole === 'lecturer') {
@@ -86,6 +87,7 @@ const LoginScreen = ({ navigation }) => {
         } else if (userRole === 'pl') {
           navigation.replace('PLDashboard');
         } else {
+          console.log('Unknown role, defaulting to StudentDashboard');
           navigation.replace('StudentDashboard');
         }
       }
@@ -107,10 +109,12 @@ const LoginScreen = ({ navigation }) => {
             }
           ]
         );
+      } else if (error.error === 'Invalid password') {
+        Alert.alert('Login Failed', 'Invalid password. Please try again.');
       } else if (error.error && error.error.includes('timeout')) {
-        Alert.alert('Connection Error', 'Request timed out. Please check if backend server is running.');
+        Alert.alert('Connection Error', 'Request timed out. Please check your internet connection.');
       } else if (error.error && error.error.includes('Network error')) {
-        Alert.alert('Network Error', 'Cannot connect to server. Please check your network and backend status.');
+        Alert.alert('Network Error', 'Cannot connect to server. Please check your network.');
       } else {
         Alert.alert('Login Failed', error.error || 'Invalid email or password');
       }
@@ -185,7 +189,9 @@ const LoginScreen = ({ navigation }) => {
           ]
         );
       } else if (error.error && error.error.includes('timeout')) {
-        Alert.alert('Connection Error', 'Request timed out. Please check if backend server is running.');
+        Alert.alert('Connection Error', 'Request timed out. Please check your internet connection.');
+      } else if (error.error && error.error.includes('Network error')) {
+        Alert.alert('Network Error', 'Cannot connect to server. Please check your network.');
       } else {
         Alert.alert('Registration Failed', error.error || 'Could not create account');
       }
@@ -206,7 +212,7 @@ const LoginScreen = ({ navigation }) => {
       >
         <View style={styles.card}>
           <View style={styles.logoContainer}>
-            <Text style={styles.logo}> </Text>
+            <Text style={styles.logoText}>...</Text>
             <Text style={styles.title}>Limkokwing University</Text>
             <Text style={styles.subtitle}>Monitoring System</Text>
           </View>
@@ -357,7 +363,7 @@ const styles = StyleSheet.create({
   scrollContainer: { flexGrow: 1, justifyContent: 'center', alignItems: 'center', padding: 20 },
   card: { backgroundColor: '#fff', borderRadius: 20, padding: 25, width: '100%', maxWidth: 450, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.1, shadowRadius: 12, elevation: 8 },
   logoContainer: { alignItems: 'center', marginBottom: 25 },
-  logo: { fontSize: 24, fontWeight: 'bold', marginBottom: 8, color: '#6200ee' },
+  logoText: { fontSize: 18, fontWeight: 'bold', color: '#6200ee', marginBottom: 5 },
   title: { fontSize: 22, fontWeight: 'bold', textAlign: 'center', color: '#6200ee' },
   subtitle: { fontSize: 13, textAlign: 'center', color: '#666', marginTop: 3 },
   toggleContainer: { flexDirection: 'row', backgroundColor: '#f0f0f0', borderRadius: 30, marginBottom: 25, padding: 4 },
